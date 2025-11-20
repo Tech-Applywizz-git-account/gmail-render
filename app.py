@@ -19,20 +19,32 @@ os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-change-this-in-production')
 
+# Print environment variables for debugging (remove in production)
+print("GOOGLE_CLIENT_ID:", os.environ.get('GOOGLE_CLIENT_ID'))
+print("GOOGLE_PROJECT_ID:", os.environ.get('GOOGLE_PROJECT_ID'))
+
 # Permission scope
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
 
 # Create credentials dictionary from environment variables
 def get_credentials_dict():
+    client_id = os.environ.get("GOOGLE_CLIENT_ID")
+    project_id = os.environ.get("GOOGLE_PROJECT_ID")
+    client_secret = os.environ.get("GOOGLE_CLIENT_SECRET")
+    
+    # Check if credentials are set
+    if not client_id or not project_id or not client_secret:
+        raise ValueError("Google OAuth credentials not found in environment variables")
+    
     return {
         "installed": {
-            "client_id": os.environ.get("GOOGLE_CLIENT_ID"),
-            "project_id": os.environ.get("GOOGLE_PROJECT_ID"),
+            "client_id": client_id,
+            "project_id": project_id,
             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
             "token_uri": "https://oauth2.googleapis.com/token",
             "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-            "client_secret": os.environ.get("GOOGLE_CLIENT_SECRET"),
-            "redirect_uris": ["http://localhost"]
+            "client_secret": client_secret,
+            "redirect_uris": ["http://localhost:5000/callback"]
         }
     }
 
@@ -49,13 +61,16 @@ def get_gmail_service():
     # For Vercel deployment, we'll use session-based token storage
     # In a production environment, you should use a database
     if 'gmail_token' in session:
+        # Convert session data back to dictionary if it's a string
         token_data = session['gmail_token']
+        if isinstance(token_data, str):
+            token_data = json.loads(token_data)
         creds = Credentials.from_authorized_user_info(token_data, SCOPES)
     
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
-            # Save refreshed credentials to session
+            # Save refreshed credentials to session as JSON string
             session['gmail_token'] = creds.to_json()
         else:
             return None  # Need to re-authenticate
@@ -117,20 +132,28 @@ def login():
     user_id = str(uuid.uuid4())
     session['user_id'] = user_id
     
-    # Create OAuth flow using environment variables
-    flow = Flow.from_client_config(
-        get_credentials_dict(),
-        scopes=SCOPES,
-        redirect_uri=url_for('callback', _external=True)
-    )
-    
-    # Store flow for this user
-    flows[user_id] = flow
-    
-    # Generate authorization URL
-    auth_url, _ = flow.authorization_url(prompt='consent')
-    
-    return redirect(auth_url)
+    try:
+        # Create OAuth flow using environment variables
+        flow = Flow.from_client_config(
+            get_credentials_dict(),
+            scopes=SCOPES
+        )
+        
+        # Set the redirect URI
+        flow.redirect_uri = url_for('callback', _external=True)
+        
+        # Store flow for this user
+        flows[user_id] = flow
+        
+        # Generate authorization URL
+        auth_url, _ = flow.authorization_url(prompt='consent')
+        
+        return redirect(auth_url)
+        
+    except ValueError as e:
+        return redirect(url_for('login_page', error=str(e)))
+    except Exception as e:
+        return redirect(url_for('login_page', error=f"OAuth configuration error: {str(e)}"))
 
 # OAuth callback route
 @app.route('/callback')
@@ -145,7 +168,7 @@ def callback():
         # Exchange authorization code for tokens
         flow.fetch_token(authorization_response=request.url)
         
-        # Save credentials to session
+        # Save credentials to session as JSON string
         creds = flow.credentials
         session['gmail_token'] = creds.to_json()
         
