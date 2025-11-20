@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Email Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f9;
+            margin: 0;
+            padding: 0;
+        }
+        header {
+            background-color: #2c3e50;
+            color: white;
+            padding: 10px;
+            text-align: center;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .auth-links {
+            margin-right: 20px;
+        }
+        .auth-links a {
+            color: white;
+            text-decoration: none;
+            margin-left: 15px;
+        }
+        .dashboard {
+            max-width: 1200px;
+            margin: 30px auto;
+            padding: 20px;
+            background-color: white;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+        .email-card {
+            background-color: #fff;
+            margin-bottom: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 15px;
+        }
+        .email-card h3 {
+            margin: 0;
+            font-size: 18px;
+            color: #333;
+        }
+        .email-card .email-body {
+            font-size: 14px;
+            color: #555;
+            margin-top: 10px;
+        }
+        .email-card .email-body p {
+            margin: 0;
+            color: #666;
+        }
+        .email-card .email-snippet {
+            font-size: 12px;
+            color: #777;
+            margin-top: 10px;
+        }
+        .login-container {
+            text-align: center;
+            padding: 50px;
+            max-width: 500px;
+            margin: 50px auto;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+        .login-form {
+            padding: 20px;
+        }
+        .login-form h2 {
+            color: #2c3e50;
+            margin-bottom: 20px;
+        }
+        .login-form p {
+            color: #666;
+            margin-bottom: 30px;
+            line-height: 1.5;
+        }
+        .login-button {
+            background-color: #4285f4;
+            color: white;
+            padding: 15px 30px;
+            text-decoration: none;
+            border-radius: 5px;
+            font-size: 18px;
+            display: inline-block;
+            margin-top: 20px;
+        }
+        .login-button:hover {
+            background-color: #3367d6;
+        }
+        .info-box {
+            background-color: #e3f2fd;
+            border-left: 4px solid #2196f3;
+            padding: 15px;
+            margin: 20px 0;
+            text-align: left;
+        }
+        .info-box h3 {
+            margin-top: 0;
+            color: #0d47a1;
+        }
+        .info-box ul {
+            text-align: left;
+            padding-left: 20px;
+        }
+        .info-box li {
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Email Dashboard</h1>
+        {% if session.user_id %}
+        <div class="auth-links">
+            <a href="/logout">Logout</a>
+        </div>
+        {% endif %}
+    </header>
+
+    <div class="dashboard">
+        {% if session.user_id %}
+            {% if emails %}
+                {% for email in emails %}
+                    <div class="email-card">
+                        <h3>{{ email.subject }}</h3>
+                        <div class="email-body">
+                            <p><strong>Body:</strong> {{ email.body }}</p>
+                        </div>
+                        <div class="email-snippet">
+                            <strong>Snippet:</strong> {{ email.snippet }}
+                        </div>
+                    </div>
+                {% endfor %}
+            {% else %}
+                <p>No emails found.</p>
+            {% endif %}
+        {% else %}
+            <div class="login-container">
+                <div class="login-form">
+                    <h2>Access Your Gmail</h2>
+                    <p>Securely connect to your Gmail account to view your latest emails in this dashboard.</p>
+                    
+                    <div class="info-box">
+                        <h3>How It Works:</h3>
+                        <ul>
+                            <li>You'll be redirected to Google's secure login page</li>
+                            <li>Enter your Gmail credentials on Google's official site</li>
+                            <li>Grant permission to read your emails</li>
+                            <li>Return here to view your latest 100 emails</li>
+                        </ul>
+                    </div>
+                    
+                    <p>We never see or store your password. This is the most secure method to access your emails.</p>
+                    
+                    <a href="/login" class="login-button">Login with Google</a>
+                </div>
+            </div>
+        {% endif %}
+    </div>
+</body>
+</html>
