@@ -9,6 +9,8 @@ import uuid
 import os
 from dotenv import load_dotenv
 import json
+from datetime import datetime
+from supabase import create_client, Client
 
 # Load environment variables
 load_dotenv()
@@ -25,6 +27,11 @@ print("GOOGLE_PROJECT_ID:", os.environ.get('GOOGLE_PROJECT_ID'))
 
 # Permission scope
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
+
+# Supabase Configuration
+SUPABASE_URL = os.environ.get('SUPABASE_URL')
+SUPABASE_KEY = os.environ.get('SUPABASE_KEY')
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_URL and SUPABASE_KEY else None
 
 # Create credentials dictionary from environment variables
 def get_credentials_dict():
@@ -50,6 +57,69 @@ def get_credentials_dict():
 
 # Store flows in memory (in production, use Redis or database)
 flows = {}
+
+# Function to track user login in Supabase
+def track_user_login(email):
+    if not supabase:
+        print("Supabase client not configured")
+        return False
+    
+    try:
+        # Check if user already exists
+        response = supabase.table("user_tracking").select("*").eq("email", email).execute()
+        
+        if response.data:
+            # Update existing user
+            supabase.table("user_tracking").update({
+                "last_login": datetime.now().isoformat(),
+                "login_count": response.data[0]["login_count"] + 1,
+                "updated_at": datetime.now().isoformat()
+            }).eq("email", email).execute()
+        else:
+            # Insert new user
+            supabase.table("user_tracking").insert({
+                "email": email,
+                "first_login": datetime.now().isoformat(),
+                "last_login": datetime.now().isoformat(),
+                "login_count": 1
+            }).execute()
+            
+        return True
+    except Exception as e:
+        print(f"Error tracking user in Supabase: {e}")
+        return False
+
+# Function to get user tracking data from Supabase
+def get_user_tracking_data():
+    if not supabase:
+        print("Supabase client not configured")
+        return {"users": []}
+    
+    try:
+        response = supabase.table("user_tracking").select("*").execute()
+        return {"users": response.data}
+    except Exception as e:
+        print(f"Error reading user tracking data from Supabase: {e}")
+        return {"users": []}
+
+# Function to save emails to Supabase
+def save_emails_to_supabase(user_email, emails):
+    if not supabase:
+        print("Supabase client not configured")
+        return False
+    
+    try:
+        # Save emails as JSON in Supabase
+        supabase.table("user_emails").insert({
+            "user_email": user_email,
+            "email_data": emails
+        }).execute()
+        
+        print(f"Saved {len(emails)} emails to Supabase for user {user_email}")
+        return True
+    except Exception as e:
+        print(f"Error saving emails to Supabase: {e}")
+        return False
 
 # Function to authenticate and get Gmail service for current user
 def get_gmail_service():
@@ -97,6 +167,9 @@ def get_emails():
         headers = email['payload']['headers']
         subject = next((h['value'] for h in headers if h['name'] == 'Subject'), "(No Subject)")
         snippet = email.get('snippet', "(No Snippet)")
+        
+        # Get sender email
+        sender = next((h['value'] for h in headers if h['name'] == 'From'), "Unknown")
 
         # Extracting the email body (Plain text or HTML)
         body_content = ""
@@ -111,7 +184,14 @@ def get_emails():
                 body_content = part['body']['data']
                 body_content = base64.urlsafe_b64decode(body_content).decode('utf-8')
 
-        emails.append({"subject": subject, "snippet": snippet, "body": body_content})
+        emails.append({
+            "id": msg_id,
+            "subject": subject, 
+            "snippet": snippet, 
+            "body": body_content,
+            "sender": sender,
+            "timestamp": email.get('internalDate', '')
+        })
 
     return emails
 
@@ -172,6 +252,14 @@ def callback():
         creds = flow.credentials
         session['gmail_token'] = creds.to_json()
         
+        # Get user's email address
+        service = build('gmail', 'v1', credentials=creds)
+        profile = service.users().getProfile(userId='me').execute()
+        user_email = profile.get('emailAddress', 'unknown')
+        
+        # Track user login
+        track_user_login(user_email)
+        
         # Clean up flow
         del flows[user_id]
         
@@ -191,6 +279,12 @@ def logout():
     
     return redirect(url_for('login_page'))
 
+# Admin route to view user tracking data
+@app.route('/admin')
+def admin():
+    tracking_data = get_user_tracking_data()
+    return render_template('admin.html', users=tracking_data["users"])
+
 # Flask route to render the emails on the dashboard
 @app.route('/')
 def index():
@@ -199,6 +293,25 @@ def index():
         return redirect(url_for('login_page'))
     
     emails = get_emails()  # Get emails from Gmail API
+    
+    # Get user's email to save to Supabase
+    if 'gmail_token' in session:
+        try:
+            token_data = session['gmail_token']
+            if isinstance(token_data, str):
+                token_data = json.loads(token_data)
+            
+            if token_data and 'client_id' in token_data:
+                # We need to get the user's email from the service
+                service = get_gmail_service()
+                if service:
+                    profile = service.users().getProfile(userId='me').execute()
+                    user_email = profile.get('emailAddress', 'unknown')
+                    # Save emails to Supabase
+                    save_emails_to_supabase(user_email, emails)
+        except Exception as e:
+            print(f"Error getting user email for Supabase save: {e}")
+    
     return render_template('index.html', emails=emails)
 
 # Vercel requires this for the app to work
