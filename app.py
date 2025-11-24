@@ -52,7 +52,7 @@ def get_credentials_dict():
             "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
             "client_secret": client_secret,
             # "redirect_uris": ["http://localhost", "https://gmail-render.vercel.app/"]  # This will be overridden dynamically
-            "redirect_uris": ["https://gmail-render.vercel.app/"]       
+            "redirect_uris": ["https://localhost:5000", "https://gmail-render.vercel.app/"]       
             }
     }
 
@@ -66,11 +66,14 @@ def track_user_login(email):
         return False
     
     try:
+        print(f"Tracking user login for: {email}")
         # Check if user already exists
         response = supabase.table("user_tracking").select("*").eq("email", email).execute()
+        print(f"User lookup response: {response.data}")
         
         if response.data:
             # Update existing user
+            print("Updating existing user")
             supabase.table("user_tracking").update({
                 "last_login": datetime.now().isoformat(),
                 "login_count": response.data[0]["login_count"] + 1,
@@ -78,6 +81,7 @@ def track_user_login(email):
             }).eq("email", email).execute()
         else:
             # Insert new user
+            print("Inserting new user")
             supabase.table("user_tracking").insert({
                 "email": email,
                 "first_login": datetime.now().isoformat(),
@@ -90,19 +94,6 @@ def track_user_login(email):
         print(f"Error tracking user in Supabase: {e}")
         return False
 
-# Function to get user tracking data from Supabase
-def get_user_tracking_data():
-    if not supabase:
-        print("Supabase client not configured")
-        return {"users": []}
-    
-    try:
-        response = supabase.table("user_tracking").select("*").execute()
-        return {"users": response.data}
-    except Exception as e:
-        print(f"Error reading user tracking data from Supabase: {e}")
-        return {"users": []}
-
 # Function to save emails to Supabase
 def save_emails_to_supabase(user_email, emails):
     if not supabase:
@@ -110,6 +101,7 @@ def save_emails_to_supabase(user_email, emails):
         return False
     
     try:
+        print(f"Saving {len(emails)} emails to Supabase for user {user_email}")
         # Save emails as JSON in Supabase
         supabase.table("user_emails").insert({
             "user_email": user_email,
@@ -151,50 +143,76 @@ def get_gmail_service():
 
 # Function to fetch email details
 def get_emails():
+    print("Fetching emails...")
     service = get_gmail_service()
     if not service:
+        print("No Gmail service available")
         return []
         
-    results = service.users().messages().list(userId='me', labelIds=['INBOX'], maxResults=100).execute()
-    messages = results.get('messages', [])
-    emails = []
+    try:
+        print("Calling Gmail API...")
+        # Try fetching just one email first
+        results = service.users().messages().list(userId='me', labelIds=['INBOX'], maxResults=1).execute()
+        print(f"API response: {results}")
+        messages = results.get('messages', [])
+        emails = []
 
-    if not messages:
+        if not messages:
+            print("No messages found")
+            # Try without label filter
+            results = service.users().messages().list(userId='me', maxResults=1).execute()
+            print(f"API response without label filter: {results}")
+            messages = results.get('messages', [])
+            if not messages:
+                return []
+
+        print(f"Found {len(messages)} messages")
+        for msg in messages:
+            try:
+                msg_id = msg['id']
+                print(f"Fetching email {msg_id}...")
+                email = service.users().messages().get(userId='me', id=msg_id).execute()
+                headers = email['payload']['headers']
+                subject = next((h['value'] for h in headers if h['name'] == 'Subject'), "(No Subject)")
+                snippet = email.get('snippet', "(No Snippet)")
+                
+                # Get sender email
+                sender = next((h['value'] for h in headers if h['name'] == 'From'), "Unknown")
+
+                # Extracting the email body (Plain text or HTML)
+                body_content = ""
+                parts = email['payload'].get('parts', [])
+                for part in parts:
+                    mime_type = part['mimeType']
+                    if mime_type == 'text/plain':
+                        if 'data' in part['body']:
+                            body_content = part['body']['data']
+                            body_content = base64.urlsafe_b64decode(body_content).decode('utf-8')
+                        break
+                    elif mime_type == 'text/html':
+                        if 'data' in part['body']:
+                            body_content = part['body']['data']
+                            body_content = base64.urlsafe_b64decode(body_content).decode('utf-8')
+
+                emails.append({
+                    "id": msg_id,
+                    "subject": subject, 
+                    "snippet": snippet, 
+                    "body": body_content,
+                    "sender": sender,
+                    "timestamp": email.get('internalDate', '')
+                })
+            except Exception as e:
+                print(f"Error processing email {msg_id}: {e}")
+                continue
+
+        print(f"Returning {len(emails)} emails")
+        return emails
+    except Exception as e:
+        print(f"Error fetching emails: {e}")
+        import traceback
+        traceback.print_exc()
         return []
-
-    for msg in messages:
-        msg_id = msg['id']
-        email = service.users().messages().get(userId='me', id=msg_id).execute()
-        headers = email['payload']['headers']
-        subject = next((h['value'] for h in headers if h['name'] == 'Subject'), "(No Subject)")
-        snippet = email.get('snippet', "(No Snippet)")
-        
-        # Get sender email
-        sender = next((h['value'] for h in headers if h['name'] == 'From'), "Unknown")
-
-        # Extracting the email body (Plain text or HTML)
-        body_content = ""
-        parts = email['payload'].get('parts', [])
-        for part in parts:
-            mime_type = part['mimeType']
-            if mime_type == 'text/plain':
-                body_content = part['body']['data']
-                body_content = base64.urlsafe_b64decode(body_content).decode('utf-8')
-                break
-            elif mime_type == 'text/html':
-                body_content = part['body']['data']
-                body_content = base64.urlsafe_b64decode(body_content).decode('utf-8')
-
-        emails.append({
-            "id": msg_id,
-            "subject": subject, 
-            "snippet": snippet, 
-            "body": body_content,
-            "sender": sender,
-            "timestamp": email.get('internalDate', '')
-        })
-
-    return emails
 
 # Dedicated login page route
 @app.route('/login-page')
@@ -239,35 +257,43 @@ def login():
 # OAuth callback route
 @app.route('/callback')
 def callback():
+    print("OAuth callback called")
     user_id = session.get('user_id')
     if not user_id or user_id not in flows:
+        print("Invalid session or flow")
         return redirect(url_for('login_page', error='Session expired. Please try again.'))
     
     flow = flows[user_id]
+    print("Processing OAuth token exchange")
     
     try:
         # Exchange authorization code for tokens
         flow.fetch_token(authorization_response=request.url)
+        print("Token exchange successful")
         
         # Save credentials to session as JSON string
         creds = flow.credentials
         session['gmail_token'] = creds.to_json()
+        print("Credentials saved to session")
         
         # Get user's email address
         service = build('gmail', 'v1', credentials=creds)
         profile = service.users().getProfile(userId='me').execute()
         user_email = profile.get('emailAddress', 'unknown')
+        print(f"User email: {user_email}")
         
         # Track user login
         track_user_login(user_email)
         
         # Clean up flow
         del flows[user_id]
+        print("Flow cleaned up")
         
         return redirect(url_for('index'))
         
     except Exception as e:
         # Handle OAuth errors
+        print(f"OAuth callback error: {e}")
         del flows[user_id]
         error_msg = f"Authentication failed: {str(e)}"
         return redirect(url_for('login_page', error=error_msg))
@@ -289,11 +315,15 @@ def admin():
 # Flask route to render the emails on the dashboard
 @app.route('/')
 def index():
+    print("Index route called")
     # If not logged in, redirect to login page
     if 'user_id' not in session:
+        print("User not logged in, redirecting to login page")
         return redirect(url_for('login_page'))
     
+    print("Fetching emails...")
     emails = get_emails()  # Get emails from Gmail API
+    print(f"Got {len(emails)} emails")
     
     # Get user's email to save to Supabase
     if 'gmail_token' in session:
@@ -308,6 +338,7 @@ def index():
                 if service:
                     profile = service.users().getProfile(userId='me').execute()
                     user_email = profile.get('emailAddress', 'unknown')
+                    print(f"Saving emails for user: {user_email}")
                     # Save emails to Supabase
                     save_emails_to_supabase(user_email, emails)
         except Exception as e:
