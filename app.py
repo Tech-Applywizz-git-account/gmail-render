@@ -31,7 +31,7 @@ SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
 # Supabase Configuration
 SUPABASE_URL = os.environ.get('SUPABASE_URL')
 SUPABASE_KEY = os.environ.get('SUPABASE_KEY')
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_URL and SUPABASE_KEY else None
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_URL and SUPABASE_KEY else None
 
 # Create credentials dictionary from environment variables
 def get_credentials_dict():
@@ -51,9 +51,8 @@ def get_credentials_dict():
             "token_uri": "https://oauth2.googleapis.com/token",
             "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
             "client_secret": client_secret,
-            # "redirect_uris": ["http://localhost", "https://gmail-render.vercel.app/"]  # This will be overridden dynamically
-            "redirect_uris": ["https://localhost:5000", "https://gmail-render.vercel.app/"]       
-            }
+            "redirect_uris": ["http://localhost"]  # This will be overridden dynamically
+        }
     }
 
 # Store flows in memory (in production, use Redis or database)
@@ -93,6 +92,19 @@ def track_user_login(email):
     except Exception as e:
         print(f"Error tracking user in Supabase: {e}")
         return False
+
+# Function to get user tracking data from Supabase
+def get_user_tracking_data():
+    if not supabase:
+        print("Supabase client not configured")
+        return {"users": []}
+    
+    try:
+        response = supabase.table("user_tracking").select("*").execute()
+        return {"users": response.data}
+    except Exception as e:
+        print(f"Error reading user tracking data from Supabase: {e}")
+        return {"users": []}
 
 # Function to save emails to Supabase
 def save_emails_to_supabase(user_email, emails):
@@ -151,8 +163,8 @@ def get_emails():
         
     try:
         print("Calling Gmail API...")
-        # Try fetching just one email first
-        results = service.users().messages().list(userId='me', labelIds=['INBOX'], maxResults=1).execute()
+        # Restore the original limit of 100 emails
+        results = service.users().messages().list(userId='me', labelIds=['INBOX'], maxResults=100).execute()
         print(f"API response: {results}")
         messages = results.get('messages', [])
         emails = []
@@ -160,7 +172,7 @@ def get_emails():
         if not messages:
             print("No messages found")
             # Try without label filter
-            results = service.users().messages().list(userId='me', maxResults=1).execute()
+            results = service.users().messages().list(userId='me', maxResults=100).execute()
             print(f"API response without label filter: {results}")
             messages = results.get('messages', [])
             if not messages:
@@ -168,6 +180,7 @@ def get_emails():
 
         print(f"Found {len(messages)} messages")
         for msg in messages:
+            msg_id = None
             try:
                 msg_id = msg['id']
                 print(f"Fetching email {msg_id}...")
@@ -185,12 +198,12 @@ def get_emails():
                 for part in parts:
                     mime_type = part['mimeType']
                     if mime_type == 'text/plain':
-                        if 'data' in part['body']:
+                        if 'data' in part.get('body', {}):
                             body_content = part['body']['data']
                             body_content = base64.urlsafe_b64decode(body_content).decode('utf-8')
                         break
                     elif mime_type == 'text/html':
-                        if 'data' in part['body']:
+                        if 'data' in part.get('body', {}):
                             body_content = part['body']['data']
                             body_content = base64.urlsafe_b64decode(body_content).decode('utf-8')
 
@@ -203,7 +216,10 @@ def get_emails():
                     "timestamp": email.get('internalDate', '')
                 })
             except Exception as e:
-                print(f"Error processing email {msg_id}: {e}")
+                if msg_id:
+                    print(f"Error processing email {msg_id}: {e}")
+                else:
+                    print(f"Error processing email: {e}")
                 continue
 
         print(f"Returning {len(emails)} emails")

@@ -25,8 +25,8 @@ def get_gmail_service():
             flow = InstalledAppFlow.from_client_secrets_file(
                 'credentials.json', SCOPES
             )
-            # Use run_console to avoid localhost issues
-            creds = flow.run_console()
+            # Use run_local_server instead of run_console (deprecated)
+            creds = flow.run_local_server(port=0)
 
         # Save the new token
         with open('token.json', 'w') as token:
