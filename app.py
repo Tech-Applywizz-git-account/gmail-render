@@ -51,8 +51,9 @@ def get_credentials_dict():
             "token_uri": "https://oauth2.googleapis.com/token",
             "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
             "client_secret": client_secret,
-            "redirect_uris": ["http://localhost:5000/callback"]
-        }
+            # "redirect_uris": ["http://localhost", "https://gmail-render.vercel.app/"]  # This will be overridden dynamically
+            "redirect_uris": ["https://gmail-render.vercel.app/"]       
+            }
     }
 
 # Store flows in memory (in production, use Redis or database)
@@ -219,7 +220,7 @@ def login():
             scopes=SCOPES
         )
         
-        # Set the redirect URI
+        # Set the redirect URI dynamically based on the request
         flow.redirect_uri = url_for('callback', _external=True)
         
         # Store flow for this user
