@@ -28,6 +28,12 @@ print(f"  SUPABASE_URL: {'set' if os.environ.get('SUPABASE_URL') else 'not set'}
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-change-this-in-production')
 
+# Configure session for Vercel - more permissive settings for testing
+app.config['SESSION_COOKIE_SECURE'] = False  # Changed to False for testing
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['PERMANENT_SESSION_LIFETIME'] = 3600  # 1 hour
+
 # Print environment variables for debugging (remove in production)
 print("GOOGLE_CLIENT_ID:", os.environ.get('GOOGLE_CLIENT_ID'))
 print("GOOGLE_PROJECT_ID:", os.environ.get('GOOGLE_PROJECT_ID'))
@@ -136,9 +142,8 @@ def save_emails_to_supabase(user_email, emails):
 
 # Function to authenticate and get Gmail service for current user
 def get_gmail_service():
-    if 'user_id' not in session:
-        return None
-        
+    print(f"get_gmail_service called with session: {dict(session)}")
+    
     creds = None
     
     # For Vercel deployment, we'll use session-based token storage
@@ -245,19 +250,29 @@ def get_emails():
 # Dedicated login page route
 @app.route('/login-page')
 def login_page():
-    # If already logged in, redirect to dashboard
-    if 'user_id' in session:
+    print("Login page route called")
+    print(f"Session contents: {dict(session)}")
+    
+    # If already logged in (has gmail_token), redirect to dashboard
+    if 'gmail_token' in session:
+        print("Gmail token found, redirecting to index")
         return redirect(url_for('index'))
     
     error = request.args.get('error')
+    print(f"Displaying login page with error: {error}")
     return render_template('login.html', error=error)
 
 # Login route
 @app.route('/login')
 def login():
+    print("Login route called")
+    print(f"Session before login: {dict(session)}")
+    
     # Create a unique user ID for this session
     user_id = str(uuid.uuid4())
     session['user_id'] = user_id
+    
+    print(f"Session after setting user_id: {dict(session)}")
     
     try:
         # Create OAuth flow using environment variables
@@ -276,6 +291,8 @@ def login():
         # Store state in session for verification
         session['oauth_state'] = state
         
+        print(f"Session after setting oauth_state: {dict(session)}")
+        
         return redirect(auth_url)
         
     except ValueError as e:
@@ -289,6 +306,7 @@ def callback():
     print("OAuth callback called")
     print(f"Request URL: {request.url}")
     print(f"Request args: {request.args}")
+    print(f"Session before processing: {dict(session)}")
     
     # Get state parameter from callback
     state = request.args.get('state')
@@ -323,6 +341,7 @@ def callback():
         creds = flow.credentials
         session['gmail_token'] = creds.to_json()
         print("Credentials saved to session")
+        print(f"Session after saving credentials: {dict(session)}")
         
         # Get user's email address
         service = build('gmail', 'v1', credentials=creds)
@@ -336,6 +355,10 @@ def callback():
         # Clean up session state
         session.pop('oauth_state', None)
         print("Flow cleaned up")
+        print(f"Session after cleanup: {dict(session)}")
+        
+        # Explicitly save session for Vercel
+        session.permanent = True
         
         return redirect(url_for('index'))
         
@@ -366,22 +389,16 @@ def admin():
 @app.route('/')
 def index():
     print("Index route called")
-    # If not logged in, redirect to login page
-    if 'user_id' not in session:
-        print("User not logged in, redirecting to login page")
-        return redirect(url_for('login_page'))
+    print(f"Session contents: {dict(session)}")
     
-    print("Fetching emails...")
-    emails = get_emails()  # Get emails from Gmail API
-    print(f"Got {len(emails)} emails")
-    
-    # Check if we have credentials
-    if 'gmail_token' not in session:
-        print("No Gmail token found, redirecting to login")
-        return redirect(url_for('login_page'))
-    
-    # Get user's email to save to Supabase
+    # Primary check: if we have Gmail credentials, show the dashboard
     if 'gmail_token' in session:
+        print("Gmail token found, displaying dashboard")
+        print("Fetching emails...")
+        emails = get_emails()  # Get emails from Gmail API
+        print(f"Got {len(emails)} emails")
+        
+        # Get user's email to save to Supabase
         try:
             token_data = session['gmail_token']
             if isinstance(token_data, str):
@@ -398,8 +415,18 @@ def index():
                     save_emails_to_supabase(user_email, emails)
         except Exception as e:
             print(f"Error getting user email for Supabase save: {e}")
+        
+        return render_template('index.html', emails=emails)
     
-    return render_template('index.html', emails=emails)
+    # If no Gmail token but we have user_id, redirect to complete OAuth
+    elif 'user_id' in session:
+        print("User ID found but no Gmail token, redirecting to login")
+        return redirect(url_for('login_page'))
+    
+    # If neither, redirect to login
+    else:
+        print("No session found, redirecting to login page")
+        return redirect(url_for('login_page'))
 
 # Vercel requires this for the app to work
 if __name__ == '__main__':
