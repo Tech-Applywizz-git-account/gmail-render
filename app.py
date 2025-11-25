@@ -18,6 +18,13 @@ load_dotenv()
 # Enable OAuthlib's HTTP support for development
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 
+# Add debugging for Vercel deployment
+print("Starting Flask app...")
+print("Environment variables:")
+print(f"  SECRET_KEY: {'set' if os.environ.get('SECRET_KEY') else 'not set'}")
+print(f"  GOOGLE_CLIENT_ID: {'set' if os.environ.get('GOOGLE_CLIENT_ID') else 'not set'}")
+print(f"  SUPABASE_URL: {'set' if os.environ.get('SUPABASE_URL') else 'not set'}")
+
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-change-this-in-production')
 
@@ -56,6 +63,7 @@ def get_credentials_dict():
     }
 
 # Store flows in memory (in production, use Redis or database)
+# For Vercel deployment, we'll use state parameter instead
 flows = {}
 
 # Function to track user login in Supabase
@@ -144,9 +152,13 @@ def get_gmail_service():
     
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-            # Save refreshed credentials to session as JSON string
-            session['gmail_token'] = creds.to_json()
+            try:
+                creds.refresh(Request())
+                # Save refreshed credentials to session as JSON string
+                session['gmail_token'] = creds.to_json()
+            except Exception as e:
+                print(f"Error refreshing credentials: {e}")
+                return None
         else:
             return None  # Need to re-authenticate
             
@@ -257,11 +269,12 @@ def login():
         # Set the redirect URI dynamically based on the request
         flow.redirect_uri = url_for('callback', _external=True)
         
-        # Store flow for this user
-        flows[user_id] = flow
+        # Generate authorization URL with state parameter for security
+        state = user_id
+        auth_url, _ = flow.authorization_url(prompt='consent', state=state)
         
-        # Generate authorization URL
-        auth_url, _ = flow.authorization_url(prompt='consent')
+        # Store state in session for verification
+        session['oauth_state'] = state
         
         return redirect(auth_url)
         
@@ -274,15 +287,34 @@ def login():
 @app.route('/callback')
 def callback():
     print("OAuth callback called")
-    user_id = session.get('user_id')
-    if not user_id or user_id not in flows:
-        print("Invalid session or flow")
-        return redirect(url_for('login_page', error='Session expired. Please try again.'))
+    print(f"Request URL: {request.url}")
+    print(f"Request args: {request.args}")
     
-    flow = flows[user_id]
-    print("Processing OAuth token exchange")
+    # Get state parameter from callback
+    state = request.args.get('state')
+    session_state = session.get('oauth_state')
+    
+    print(f"State from callback: {state}")
+    print(f"State from session: {session_state}")
+    
+    # Verify state parameter to prevent CSRF
+    if not state or not session_state or state != session_state:
+        print("Invalid state parameter")
+        return redirect(url_for('login_page', error='Invalid request. Please try again.'))
+    
+    # Get user_id from state
+    user_id = state
+    session['user_id'] = user_id
     
     try:
+        # Create a new flow for token exchange
+        flow = Flow.from_client_config(
+            get_credentials_dict(),
+            scopes=SCOPES
+        )
+        flow.redirect_uri = url_for('callback', _external=True)
+        
+        print("Attempting to fetch token...")
         # Exchange authorization code for tokens
         flow.fetch_token(authorization_response=request.url)
         print("Token exchange successful")
@@ -301,8 +333,8 @@ def callback():
         # Track user login
         track_user_login(user_email)
         
-        # Clean up flow
-        del flows[user_id]
+        # Clean up session state
+        session.pop('oauth_state', None)
         print("Flow cleaned up")
         
         return redirect(url_for('index'))
@@ -310,7 +342,9 @@ def callback():
     except Exception as e:
         # Handle OAuth errors
         print(f"OAuth callback error: {e}")
-        del flows[user_id]
+        import traceback
+        traceback.print_exc()
+        session.pop('oauth_state', None)
         error_msg = f"Authentication failed: {str(e)}"
         return redirect(url_for('login_page', error=error_msg))
 
@@ -340,6 +374,11 @@ def index():
     print("Fetching emails...")
     emails = get_emails()  # Get emails from Gmail API
     print(f"Got {len(emails)} emails")
+    
+    # Check if we have credentials
+    if 'gmail_token' not in session:
+        print("No Gmail token found, redirecting to login")
+        return redirect(url_for('login_page'))
     
     # Get user's email to save to Supabase
     if 'gmail_token' in session:
