@@ -23,6 +23,8 @@ print("Starting Flask app...")
 print("Environment variables:")
 print(f"  SECRET_KEY: {'set' if os.environ.get('SECRET_KEY') else 'not set'}")
 print(f"  GOOGLE_CLIENT_ID: {'set' if os.environ.get('GOOGLE_CLIENT_ID') else 'not set'}")
+print(f"  GOOGLE_PROJECT_ID: {'set' if os.environ.get('GOOGLE_PROJECT_ID') else 'not set'}")
+print(f"  GOOGLE_CLIENT_SECRET: {'set' if os.environ.get('GOOGLE_CLIENT_SECRET') else 'not set'}")
 print(f"  SUPABASE_URL: {'set' if os.environ.get('SUPABASE_URL') else 'not set'}")
 
 app = Flask(__name__)
@@ -52,11 +54,23 @@ def get_credentials_dict():
     project_id = os.environ.get("GOOGLE_PROJECT_ID")
     client_secret = os.environ.get("GOOGLE_CLIENT_SECRET")
     
+    print(f"Google OAuth Environment Variables:")
+    print(f"  GOOGLE_CLIENT_ID: {client_id}")
+    print(f"  GOOGLE_PROJECT_ID: {project_id}")
+    print(f"  GOOGLE_CLIENT_SECRET: {'set' if client_secret else 'not set'}")
+    
     # Check if credentials are set
     if not client_id or not project_id or not client_secret:
         raise ValueError("Google OAuth credentials not found in environment variables")
     
-    return {
+    # Define redirect URIs for both localhost and Vercel
+    redirect_uris = [
+        "http://localhost:5000/callback",
+        "http://localhost/callback",
+        "https://gmail-render.vercel.app/callback"
+    ]
+    
+    credentials = {
         "installed": {
             "client_id": client_id,
             "project_id": project_id,
@@ -64,9 +78,12 @@ def get_credentials_dict():
             "token_uri": "https://oauth2.googleapis.com/token",
             "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
             "client_secret": client_secret,
-            "redirect_uris": ["http://localhost"]  # This will be overridden dynamically
+            "redirect_uris": redirect_uris
         }
     }
+    
+    print(f"Generated credentials dict: {credentials}")
+    return credentials
 
 # Store flows in memory (in production, use Redis or database)
 # For Vercel deployment, we'll use state parameter instead
@@ -267,37 +284,43 @@ def login_page():
 def login():
     print("Login route called")
     print(f"Session before login: {dict(session)}")
-    
-    # Create a unique user ID for this session
-    user_id = str(uuid.uuid4())
-    session['user_id'] = user_id
-    
-    print(f"Session after setting user_id: {dict(session)}")
+    print(f"Request URL: {request.url}")
+    print(f"Request host: {request.host}")
+    print(f"Request scheme: {request.scheme}")
     
     try:
         # Create OAuth flow using environment variables
+        credentials_dict = get_credentials_dict()
         flow = Flow.from_client_config(
-            get_credentials_dict(),
+            credentials_dict,
             scopes=SCOPES
         )
         
         # Set the redirect URI dynamically based on the request
         flow.redirect_uri = url_for('callback', _external=True)
         
+        print(f"Flow redirect URI: {flow.redirect_uri}")
+        
         # Generate authorization URL with state parameter for security
-        state = user_id
+        state = str(uuid.uuid4())
         auth_url, _ = flow.authorization_url(prompt='consent', state=state)
         
         # Store state in session for verification
         session['oauth_state'] = state
+        session['user_id'] = state  # Use the same state as user_id for simplicity
         
         print(f"Session after setting oauth_state: {dict(session)}")
+        print(f"Authorization URL: {auth_url}")
         
         return redirect(auth_url)
         
     except ValueError as e:
+        print(f"ValueError in login route: {e}")
         return redirect(url_for('login_page', error=str(e)))
     except Exception as e:
+        print(f"Exception in login route: {e}")
+        import traceback
+        traceback.print_exc()
         return redirect(url_for('login_page', error=f"OAuth configuration error: {str(e)}"))
 
 # OAuth callback route
@@ -320,19 +343,18 @@ def callback():
         print("Invalid state parameter")
         return redirect(url_for('login_page', error='Invalid request. Please try again.'))
     
-    # Get user_id from state
-    user_id = state
-    session['user_id'] = user_id
-    
     try:
         # Create a new flow for token exchange
+        credentials_dict = get_credentials_dict()
         flow = Flow.from_client_config(
-            get_credentials_dict(),
+            credentials_dict,
             scopes=SCOPES
         )
         flow.redirect_uri = url_for('callback', _external=True)
         
+        print(f"Callback flow redirect URI: {flow.redirect_uri}")
         print("Attempting to fetch token...")
+        
         # Exchange authorization code for tokens
         flow.fetch_token(authorization_response=request.url)
         print("Token exchange successful")
