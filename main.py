@@ -1,10 +1,10 @@
-from __future__ import print_function
-import os.path
-import base64
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
+from __future__ import print_function #Ensures compatibility with Python 2 and 3 print functions
+import os.path #Provides functions for pathname manipulations
+import base64 #Used for encoding/decoding binary data to ASCII text
+from google.auth.transport.requests import Request #Google's authentication transport layer for making HTTP requests
+from google.oauth2.credentials import Credentials #Handles OAuth2 credentials for authentication
+from google_auth_oauthlib.flow import InstalledAppFlow #Manages OAuth2 flow for installed applications
+from googleapiclient.discovery import build #Used to build Google API service objects
 
 # Permission scope → read-only Gmail access
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
@@ -37,22 +37,43 @@ def get_gmail_service():
     return service
 
 
-def list_full_email_body(service, max_results=100):
-    """List latest emails with full body content (text or HTML)."""
-    print("\nFetching full email bodies...\n")
-
-    results = service.users().messages().list(
-        userId='me',
-        maxResults=max_results,
-        labelIds=['INBOX']
-    ).execute()
+def list_full_email_body(service, max_results=None):
+    """List emails from the last 24 hours with full body content (text or HTML)."""
+    print("\nFetching emails from the last 24 hours...\n")
+    
+    # Calculate timestamp for 24 hours ago
+    import time
+    twenty_four_hours_ago = int(time.time() * 1000) - (24 * 60 * 60 * 1000)
+    
+    # Create query to fetch emails from the last 24 hours
+    query = f"after:{twenty_four_hours_ago // 1000}"
+    
+    # Prepare parameters for the API call
+    list_params = {
+        'userId': 'me',
+        'labelIds': ['INBOX'],
+        'q': query
+    }
+    
+    # Only add maxResults if specified
+    if max_results is not None:
+        list_params['maxResults'] = max_results
+    
+    results = service.users().messages().list(**list_params).execute()
 
     messages = results.get('messages', [])
 
     if not messages:
-        print("No emails found.")
-        return
+        print("No emails found in the last 24 hours.")
+        # Try without label filter
+        list_params.pop('labelIds')
+        results = service.users().messages().list(**list_params).execute()
+        messages = results.get('messages', [])
+        if not messages:
+            print("Still no emails found after removing label filter.")
+            return
 
+    print(f"Found {len(messages)} emails from the last 24 hours:")
     for msg in messages:
         msg_id = msg['id']
         email = service.users().messages().get(userId='me', id=msg_id).execute()
@@ -83,8 +104,7 @@ def list_full_email_body(service, max_results=100):
 
 def main():
     service = get_gmail_service()
-    list_full_email_body(service, max_results=100)
-
+    list_full_email_body(service)
 
 if __name__ == '__main__':
     main()

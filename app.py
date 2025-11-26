@@ -189,6 +189,7 @@ def get_gmail_service():
 
 # Function to fetch email details
 def get_emails():
+    """Fetch emails from the last 24 hours."""
     print("Fetching emails...")
     service = get_gmail_service()
     if not service:
@@ -197,8 +198,19 @@ def get_emails():
         
     try:
         print("Calling Gmail API...")
-        # Restore the original limit of 100 emails
-        results = service.users().messages().list(userId='me', labelIds=['INBOX'], maxResults=100).execute()
+        # Calculate timestamp for 24 hours ago
+        import time
+        twenty_four_hours_ago = int(time.time() * 1000) - (24 * 60 * 60 * 1000)
+        
+        # Create query to fetch emails from the last 24 hours
+        query = f"after:{twenty_four_hours_ago // 1000}"
+        
+        # Fetch emails from the last 24 hours (no maxResults limit)
+        results = service.users().messages().list(
+            userId='me', 
+            labelIds=['INBOX'], 
+            q=query
+        ).execute()
         print(f"API response: {results}")
         messages = results.get('messages', [])
         emails = []
@@ -206,7 +218,7 @@ def get_emails():
         if not messages:
             print("No messages found")
             # Try without label filter
-            results = service.users().messages().list(userId='me', maxResults=100).execute()
+            results = service.users().messages().list(userId='me', q=query).execute()
             print(f"API response without label filter: {results}")
             messages = results.get('messages', [])
             if not messages:
