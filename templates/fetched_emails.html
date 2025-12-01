@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fetched Emails</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f9;
+            margin: 0;
+            padding: 0;
+        }
+        header {
+            background-color: #2c3e50;
+            color: white;
+            padding: 10px;
+            text-align: center;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .auth-links {
+            margin-right: 20px;
+        }
+        .auth-links a {
+            color: white;
+            text-decoration: none;
+            margin-left: 15px;
+        }
+        .dashboard {
+            max-width: 1200px;
+            margin: 30px auto;
+            padding: 20px;
+            background-color: white;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+        .email-card {
+            background-color: #fff;
+            margin-bottom: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 15px;
+        }
+        .email-card h3 {
+            margin: 0;
+            font-size: 18px;
+            color: #333;
+        }
+        .email-card .sender {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 10px;
+        }
+        .email-card .email-body {
+            font-size: 14px;
+            color: #555;
+            margin-top: 10px;
+        }
+        .email-card .email-body p {
+            margin: 0;
+            color: #666;
+        }
+        .email-card .email-snippet {
+            font-size: 12px;
+            color: #777;
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-left: 3px solid #2c3e50;
+        }
+        .nav-links {
+            background-color: #e9ecef;
+            padding: 10px;
+            text-align: center;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .nav-links a {
+            margin: 0 10px;
+            text-decoration: none;
+            color: #2c3e50;
+            font-weight: bold;
+        }
+        .nav-links a:hover {
+            text-decoration: underline;
+        }
+        .no-emails {
+            text-align: center;
+            color: #666;
+            font-style: italic;
+            padding: 40px;
+        }
+        .timestamp {
+            font-size: 12px;
+            color: #999;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Fetched Emails</h1>
+        <div class="auth-links">
+            <a href="/">Dashboard</a>
+            <a href="/jobs">Job Applications</a>
+            <a href="/process-stored-emails">Process Stored Emails</a>
+            <a href="/logout">Logout</a>
+        </div>
+    </header>
+
+    <div class="dashboard">
+        <div class="nav-links">
+            <a href="/">Recent Emails</a>
+            <a href="/fetched-emails">Fetched Emails</a>
+            <a href="/jobs">Job Applications</a>
+            <a href="/process-stored-emails">Process Stored Emails</a>
+        </div>
+        
+        {% if error %}
+            <div style="background-color: #ffebee; color: #d32f2f; padding: 15px; border-radius: 4px; margin-bottom: 20px;">
+                {{ error }}
+            </div>
+        {% endif %}
+        
+        <h2>Latest Fetched Emails (No LLM Processing)</h2>
+        <p>These are the raw emails fetched from your Gmail account without any AI processing.</p>
+        
+        {% if emails %}
+            {% for email in emails %}
+                <div class="email-card">
+                    <h3>{{ email.subject or 'No Subject' }}</h3>
+                    <div class="sender">
+                        <strong>From:</strong> {{ email.sender or 'Unknown' }}
+                    </div>
+                    <div class="timestamp">
+                        <strong>Date:</strong> 
+                        {% if email.timestamp %}
+                            {{ email.timestamp | format_timestamp }}
+                        {% else %}
+                            Unknown
+                        {% endif %}
+                    </div>
+                    <div class="email-body">
+                        <p><strong>Body:</strong> {{ email.body[:500] }}{% if email.body|length > 500 %}...{% endif %}</p>
+                    </div>
+                    <div class="email-snippet">
+                        <strong>Snippet:</strong> {{ email.snippet or 'No snippet available' }}
+                    </div>
+                </div>
+            {% endfor %}
+        {% else %}
+            <div class="no-emails">
+                <p>No emails found.</p>
+                <p>Try refreshing the page or check back later.</p>
+            </div>
+        {% endif %}
+    </div>
+</body>
+</html>

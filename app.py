@@ -12,6 +12,16 @@ import json
 from datetime import datetime
 from supabase import create_client, Client
 
+# Try to import job processor
+try:
+    from job_processor import process_job_email
+    JOB_PROCESSOR_AVAILABLE = True
+    print("Job processor module loaded successfully")
+except ImportError as e:
+    print(f"Warning: job_processor module not found or has import errors: {e}")
+    process_job_email = None
+    JOB_PROCESSOR_AVAILABLE = False
+
 # Load environment variables
 load_dotenv()
 
@@ -29,6 +39,21 @@ print(f"  SUPABASE_URL: {'set' if os.environ.get('SUPABASE_URL') else 'not set'}
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-change-this-in-production')
+
+# Custom filter to format timestamps
+@app.template_filter('format_timestamp')
+def format_timestamp(timestamp_str):
+    try:
+        # Convert string to integer
+        timestamp_ms = int(timestamp_str)
+        # Convert milliseconds to seconds
+        timestamp_s = timestamp_ms // 1000
+        # Convert to datetime object
+        dt = datetime.fromtimestamp(timestamp_s)
+        # Format as readable string
+        return dt.strftime('%Y-%m-%d %H:%M:%S')
+    except (ValueError, TypeError):
+        return 'Unknown'
 
 # Configure session for Vercel - more permissive settings for testing
 app.config['SESSION_COOKIE_SECURE'] = False  # Changed to False for testing
@@ -156,6 +181,60 @@ def save_emails_to_supabase(user_email, emails):
     except Exception as e:
         print(f"Error saving emails to Supabase: {e}")
         return False
+
+# Function to fetch stored emails from Supabase
+def get_stored_emails_from_supabase(user_email):
+    if not supabase:
+        print("Supabase client not configured")
+        return []
+    
+    try:
+        print(f"Fetching stored emails from Supabase for user {user_email}")
+        response = supabase.table("user_emails").select("*").eq("user_email", user_email).execute()
+        emails = []
+        for record in response.data:
+            # Each record contains email_data as a JSON array
+            emails.extend(record.get("email_data", []))
+        print(f"Fetched {len(emails)} emails from Supabase storage")
+        return emails
+    except Exception as e:
+        print(f"Error fetching stored emails from Supabase: {e}")
+        return []
+
+# Function to process all stored emails with LLM
+def process_stored_emails_with_llm(user_email):
+    if not JOB_PROCESSOR_AVAILABLE or not process_job_email:
+        print("Job processor not available")
+        return 0
+    
+    try:
+        print(f"Processing stored emails with LLM for user: {user_email}")
+        emails = get_stored_emails_from_supabase(user_email)
+        print(f"Found {len(emails)} stored emails to process")
+        
+        processed_count = 0
+        for i, email_data in enumerate(emails):
+            print(f"Processing stored email {i+1}/{len(emails)}: {email_data.get('subject', 'No Subject')}")
+            # Check if this looks like a job-related email
+            subject = email_data.get('subject', '').lower()
+            job_keywords = ['application', 'job', 'position', 'interview', 'offer', 'rejected', 'hired']
+            
+            # Process ALL emails with LLM, not just job-related ones
+            if process_job_email:
+                success = process_job_email(user_email, email_data)
+                if success:
+                    processed_count += 1
+                    print(f"Successfully processed stored email {i+1}")
+                else:
+                    print(f"Failed to process stored email {i+1}")
+                    
+        print(f"Processed {processed_count} stored emails with LLM")
+        return processed_count
+    except Exception as e:
+        print(f"Error processing stored emails with LLM: {e}")
+        import traceback
+        traceback.print_exc()
+        return 0
 
 # Function to authenticate and get Gmail service for current user
 def get_gmail_service():
@@ -419,6 +498,75 @@ def admin():
     tracking_data = get_user_tracking_data()
     return render_template('admin.html', users=tracking_data["users"])
 
+# Jobs dashboard route to view tracked job applications
+@app.route('/jobs')
+def jobs_dashboard():
+    if 'gmail_token' not in session:
+        return redirect(url_for('login_page'))
+    
+    try:
+        # Get user's email address
+        service = get_gmail_service()
+        if service:
+            profile = service.users().getProfile(userId='me').execute()
+            user_email = profile.get('emailAddress', 'unknown')
+            
+            # Fetch user's job applications from Supabase
+            if supabase:
+                response = supabase.table("jobs").select("*").eq("user_email", user_email).order("created_at", desc=True).execute()
+                jobs = response.data
+            else:
+                jobs = []
+            
+            return render_template('jobs.html', jobs=jobs)
+        else:
+            return redirect(url_for('login_page'))
+    except Exception as e:
+        print(f"Error fetching jobs: {e}")
+        return render_template('jobs.html', jobs=[], error="Failed to fetch job data")
+
+# Flask route to trigger batch processing of stored emails
+@app.route('/process-stored-emails')
+def process_stored_emails_route():
+    if 'gmail_token' not in session:
+        return redirect(url_for('login_page'))
+    
+    try:
+        # Get user's email address
+        service = get_gmail_service()
+        if service:
+            profile = service.users().getProfile(userId='me').execute()
+            user_email = profile.get('emailAddress', 'unknown')
+            
+            # Process all stored emails
+            processed_count = process_stored_emails_with_llm(user_email)
+            
+            return f"Successfully processed {processed_count} stored emails with LLM"
+        else:
+            return redirect(url_for('login_page'))
+    except Exception as e:
+        print(f"Error processing stored emails: {e}")
+        return f"Error processing stored emails: {str(e)}"
+
+# Flask route to display fetched emails without LLM processing
+@app.route('/fetched-emails')
+def fetched_emails():
+    # Check if user is authenticated
+    if 'gmail_token' not in session:
+        return redirect(url_for('login_page'))
+    
+    try:
+        print("Fetching emails for fetched-emails route...")
+        emails = get_emails()  # Get emails from Gmail API without LLM processing
+        print(f"Got {len(emails)} emails for display")
+        
+        return render_template('fetched_emails.html', emails=emails)
+    except Exception as e:
+        print(f"Error fetching emails: {e}")
+        import traceback
+        traceback.print_exc()
+        return render_template('fetched_emails.html', emails=[], error="Failed to fetch emails: " + str(e))
+
 # Flask route to render the emails on the dashboard
 @app.route('/')
 def index():
@@ -431,6 +579,41 @@ def index():
         print("Fetching emails...")
         emails = get_emails()  # Get emails from Gmail API
         print(f"Got {len(emails)} emails")
+        
+        # Process job emails if job processor is available
+        if JOB_PROCESSOR_AVAILABLE and process_job_email:
+            user_email = None
+            try:
+                # Get user's email address
+                service = get_gmail_service()
+                if service:
+                    profile = service.users().getProfile(userId='me').execute()
+                    user_email = profile.get('emailAddress', 'unknown')
+                    print(f"Processing job emails for user: {user_email}")
+                    
+                    # Process newly fetched emails for job information
+                    processed_count = 0
+                    for email_data in emails:
+                        print(f"Processing newly fetched email: {email_data.get('subject', 'No Subject')}")
+                        # Process ALL emails with LLM, not just job-related ones
+                        if process_job_email:  # Double-check the function is available
+                            success = process_job_email(user_email, email_data)
+                            if success:
+                                processed_count += 1
+                                print(f"Successfully processed newly fetched email")
+                            else:
+                                print(f"Failed to process newly fetched email")
+                    
+                    print(f"Processed {processed_count} newly fetched emails with LLM")
+                    
+                    # Also process previously stored emails
+                    stored_processed_count = process_stored_emails_with_llm(user_email)
+                    print(f"Additionally processed {stored_processed_count} stored emails with LLM")
+                    
+            except Exception as e:
+                print(f"Error processing job emails: {e}")
+        else:
+            print("Job processor not available, skipping job email processing")
         
         # Get user's email to save to Supabase
         try:
@@ -464,4 +647,5 @@ def index():
 
 # Vercel requires this for the app to work
 if __name__ == '__main__':
+    print("Starting Flask app in debug mode...")
     app.run(debug=True, host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))

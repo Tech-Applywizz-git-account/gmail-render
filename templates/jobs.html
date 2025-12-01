@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Job Applications Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f9;
+            margin: 0;
+            padding: 0;
+        }
+        header {
+            background-color: #2c3e50;
+            color: white;
+            padding: 10px;
+            text-align: center;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .auth-links {
+            margin-right: 20px;
+        }
+        .auth-links a {
+            color: white;
+            text-decoration: none;
+            margin-left: 15px;
+        }
+        .dashboard {
+            max-width: 1200px;
+            margin: 30px auto;
+            padding: 20px;
+            background-color: white;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+        .job-card {
+            background-color: #fff;
+            margin-bottom: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 15px;
+        }
+        .job-card h3 {
+            margin: 0;
+            font-size: 18px;
+            color: #333;
+        }
+        .job-card .company {
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        .job-card .status {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 3px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+        .status.applied {
+            background-color: #e3f2fd;
+            color: #1976d2;
+        }
+        .status.next_steps {
+            background-color: #fff3e0;
+            color: #f57c00;
+        }
+        .status.rejected {
+            background-color: #ffebee;
+            color: #d32f2f;
+        }
+        .job-card .details {
+            font-size: 14px;
+            color: #555;
+            margin-top: 10px;
+        }
+        .job-card .details p {
+            margin: 5px 0;
+        }
+        .no-jobs {
+            text-align: center;
+            color: #666;
+            font-style: italic;
+            padding: 40px;
+        }
+        .stats {
+            display: flex;
+            justify-content: space-around;
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .stat-item {
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        .stat-label {
+            font-size: 14px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Job Applications Dashboard</h1>
+        <div class="auth-links">
+            <a href="/">Emails</a>
+            <a href="/fetched-emails">Fetched Emails</a>
+            <a href="/process-stored-emails">Process Stored Emails</a>
+            <a href="/logout">Logout</a>
+        </div>
+    </header>
+
+    <div class="dashboard">
+        {% if error %}
+            <div style="background-color: #ffebee; color: #d32f2f; padding: 15px; border-radius: 4px; margin-bottom: 20px;">
+                {{ error }}
+            </div>
+        {% endif %}
+        
+        {% if jobs %}
+            <div class="stats">
+                <div class="stat-item">
+                    <div class="stat-value">{{ jobs|length }}</div>
+                    <div class="stat-label">Total Applications</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value">{{ jobs|selectattr('status', 'equalto', 'applied')|list|length }}</div>
+                    <div class="stat-label">Applied</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value">{{ jobs|selectattr('status', 'equalto', 'next_steps')|list|length }}</div>
+                    <div class="stat-label">Next Steps</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value">{{ jobs|selectattr('status', 'equalto', 'rejected')|list|length }}</div>
+                    <div class="stat-label">Rejected</div>
+                </div>
+            </div>
+            
+            {% for job in jobs %}
+                <div class="job-card">
+                    <h3>
+                        {{ job.job_name or 'Untitled Position' }}
+                        <span class="status {{ job.status }}">{{ job.status.replace('_', ' ').title() }}</span>
+                    </h3>
+                    <div class="details">
+                        <p><strong>Company:</strong> <span class="company">{{ job.company_name or 'Unknown' }}</span></p>
+                        {% if job.job_link %}
+                            <p><strong>Link:</strong> <a href="{{ job.job_link }}" target="_blank">{{ job.job_link }}</a></p>
+                        {% endif %}
+                        {% if job.req_id %}
+                            <p><strong>Req ID:</strong> {{ job.req_id }}</p>
+                        {% endif %}
+                        <p><strong>Received:</strong> {{ job.email_timestamp or 'Unknown' }}</p>
+                        {% if job.additional_details %}
+                            <p><strong>Details:</strong> {{ job.additional_details[:200] }}{% if job.additional_details|length > 200 %}...{% endif %}</p>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endfor %}
+        {% else %}
+            <div class="no-jobs">
+                <p>No job applications tracked yet.</p>
+                <p>Apply to some jobs and check back later. The system will automatically track your applications.</p>
+            </div>
+        {% endif %}
+    </div>
+</body>
+</html>

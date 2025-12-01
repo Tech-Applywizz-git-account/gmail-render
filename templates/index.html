@@ -113,6 +113,22 @@
         .info-box li {
             margin-bottom: 10px;
         }
+        .nav-links {
+            background-color: #e9ecef;
+            padding: 10px;
+            text-align: center;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .nav-links a {
+            margin: 0 10px;
+            text-decoration: none;
+            color: #2c3e50;
+            font-weight: bold;
+        }
+        .nav-links a:hover {
+            text-decoration: underline;
+        }
     </style>
 </head>
 <body>
@@ -120,6 +136,9 @@
         <h1>Email Dashboard</h1>
         {% if session.user_id %}
         <div class="auth-links">
+            <a href="/jobs">Job Tracker</a>
+            <a href="/fetched-emails">Fetched Emails</a>
+            <a href="/process-stored-emails">Process Stored Emails</a>
             <a href="/logout">Logout</a>
         </div>
         {% endif %}
@@ -127,12 +146,19 @@
 
     <div class="dashboard">
         {% if session.user_id %}
+            <div class="nav-links">
+                <a href="/">Recent Emails</a>
+                <a href="/fetched-emails">Fetched Emails</a>
+                <a href="/jobs">Job Applications</a>
+                <a href="/process-stored-emails">Process Stored Emails</a>
+            </div>
+            
             {% if emails %}
                 {% for email in emails %}
                     <div class="email-card">
                         <h3>{{ email.subject }}</h3>
                         <div class="email-body">
-                            <p><strong>Body:</strong> {{ email.body }}</p>
+                            <p><strong>Body:</strong> {{ email.body[:300] }}{% if email.body|length > 300 %}...{% endif %}</p>
                         </div>
                         <div class="email-snippet">
                             <strong>Snippet:</strong> {{ email.snippet }}
