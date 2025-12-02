@@ -9,9 +9,9 @@ import re
 from datetime import datetime
 from supabase import create_client, Client
 
-# AWS Bedrock Configuration
-AWS_ACCESS_KEY_ID = os.environ.get("AWS_ACCESS_KEY_ID", "AKIAXBZELAB2ZHUPBRSK")
-AWS_SECRET_ACCESS_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY", "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")
+# AWS Bedrock Configuration - Remove default values for sensitive credentials
+AWS_ACCESS_KEY_ID = os.environ.get("AWS_ACCESS_KEY_ID")
+AWS_SECRET_ACCESS_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY")
 AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
 BEDROCK_MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "us.amazon.nova-lite-v1:0")
 
@@ -20,11 +20,33 @@ SUPABASE_URL = os.environ.get('SUPABASE_URL')
 SUPABASE_KEY = os.environ.get('SUPABASE_KEY')
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_URL and SUPABASE_KEY else None
 
+def validate_aws_credentials():
+    """Validate that AWS credentials are properly configured"""
+    if not AWS_ACCESS_KEY_ID or not AWS_SECRET_ACCESS_KEY:
+        print("WARNING: AWS credentials not set. AI processing will be disabled.")
+        print("Please set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in your .env file.")
+        return False
+    
+    if not AWS_REGION:
+        print("WARNING: AWS_REGION not set. Using default 'us-east-1'.")
+    
+    print("AWS credentials configured.")
+    return True
+
+# Validate AWS credentials on module import
+validate_aws_credentials()
+
 def get_bedrock_client():
     """Initialize and return AWS Bedrock client."""
     try:
         import boto3
         from botocore.exceptions import ClientError
+        
+        # Check if credentials are available
+        if not AWS_ACCESS_KEY_ID or not AWS_SECRET_ACCESS_KEY:
+            print("AWS credentials not available. AI processing will be disabled.")
+            return None
+            
         bedrock = boto3.client(
             service_name='bedrock-runtime',
             region_name=AWS_REGION,
