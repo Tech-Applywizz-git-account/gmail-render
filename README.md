@@ -24,44 +24,34 @@ This is a Flask web application that allows multiple users to authenticate with 
 ## Installation
 
 1. Clone or download this repository
+
 2. Install the required packages:
    ```
    pip install -r requirements.txt
    ```
 
-3. Set up Google OAuth credentials:
+3. Set up environment variables:
+   - Copy `.env.example` to `.env`:
+     ```
+     cp .env.example .env
+     ```
+   - Edit `.env` and fill in your actual credentials
+
+4. Set up Google OAuth credentials:
    - Create a project in Google Cloud Console
    - Enable the Gmail API
    - Create OAuth 2.0 credentials (use "Web application" type)
-   - Set environment variables:
-     ```
-     GOOGLE_CLIENT_ID=your_client_id
-     GOOGLE_PROJECT_ID=your_project_id
-     GOOGLE_CLIENT_SECRET=your_client_secret
-     ```
+   - Update the corresponding values in your `.env` file
 
-4. Set up AWS Bedrock for AI processing:
-   - Install AWS CLI and configure credentials
-   - Or set environment variables:
-     ```
-     AWS_ACCESS_KEY_ID=your_access_key
-     AWS_SECRET_ACCESS_KEY=your_secret_key
-     AWS_REGION=us-east-1
-     ```
+5. Set up AWS Bedrock for AI processing:
+   - Create an AWS account and configure Bedrock access
+   - Create an IAM user with Bedrock permissions
+   - Update the corresponding values in your `.env` file
 
-5. Set up Supabase:
+6. Set up Supabase:
    - Create a Supabase project
    - Get your project URL and API key
-   - Set environment variables:
-     ```
-     SUPABASE_URL=your_supabase_url
-     SUPABASE_KEY=your_supabase_key
-     ```
-
-6. Set Flask secret key:
-   ```
-   SECRET_KEY=your_secret_key
-   ```
+   - Update the corresponding values in your `.env` file
 
 ## Usage
 
@@ -83,6 +73,19 @@ This is a Flask web application that allows multiple users to authenticate with 
    - **Process Stored Emails** - Manually trigger AI processing of stored emails
 
 6. Use the "Logout" button to sign out
+
+## Security Best Practices
+
+- Never commit `.env` files or actual credentials to version control
+- The `.gitignore` file is configured to exclude `.env` files
+- Always use strong, unique passwords for all services
+- Regularly rotate your API keys and credentials
+- Use HTTPS in production environments
+- Change the Flask secret key in production
+
+## Deployment
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed instructions on deploying this application to Vercel and setting up GitHub secrets.
 
 ## Job Application Tracking System
 
@@ -130,14 +133,6 @@ The AI email categorization has been improved to better distinguish between diff
 - Job-related emails are automatically processed and stored in the jobs table
 - Users can manually trigger AI processing of stored emails
 
-## Security Notes
-
-- Tokens are stored in secure session storage
-- Each user's data is isolated from other users
-- Always use HTTPS in production environments
-- Change the Flask secret key in production
-- Never commit credentials or tokens to version control
-
 ## Files
 
 - `app.py` - Main Flask application with multi-user support
@@ -149,6 +144,8 @@ The AI email categorization has been improved to better distinguish between diff
   - `fetched_emails.html` - Raw emails view
   - `login.html` - Login page
 - `requirements.txt` - Python package dependencies
+- `.env.example` - Template for environment variables
+- `DEPLOYMENT.md` - Deployment guide for Vercel and GitHub Actions
 
 ## Support
 

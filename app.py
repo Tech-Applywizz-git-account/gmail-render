@@ -28,6 +28,42 @@ load_dotenv()
 # Enable OAuthlib's HTTP support for development
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 
+def validate_environment_variables():
+    """Validate that all required environment variables are set"""
+    required_vars = [
+        'SECRET_KEY',
+        'GOOGLE_CLIENT_ID',
+        'GOOGLE_PROJECT_ID',
+        'GOOGLE_CLIENT_SECRET',
+        'SUPABASE_URL',
+        'SUPABASE_KEY'
+    ]
+    
+    missing_vars = []
+    for var in required_vars:
+        if not os.environ.get(var):
+            missing_vars.append(var)
+    
+    # Check AWS credentials only if job processor is available
+    if JOB_PROCESSOR_AVAILABLE:
+        aws_vars = ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY']
+        for var in aws_vars:
+            if not os.environ.get(var):
+                missing_vars.append(var)
+    
+    if missing_vars:
+        print("WARNING: The following environment variables are not set:")
+        for var in missing_vars:
+            print(f"  - {var}")
+        print("Please set these variables in your .env file or environment.")
+        return False
+    
+    print("All required environment variables are set.")
+    return True
+
+# Validate environment variables on startup
+validate_environment_variables()
+
 # Add debugging for Vercel deployment
 print("Starting Flask app...")
 print("Environment variables:")
@@ -86,7 +122,7 @@ def get_credentials_dict():
     
     # Check if credentials are set
     if not client_id or not project_id or not client_secret:
-        raise ValueError("Google OAuth credentials not found in environment variables")
+        raise ValueError("Google OAuth credentials not found in environment variables. Please check your .env file.")
     
     # Define redirect URIs for both localhost and Vercel
     redirect_uris = [
