@@ -4,14 +4,21 @@ This is a Flask web application that allows multiple users to authenticate with 
 
 ## Features
 
+### Core Features
 - Multi-user support with individual authentication
 - Secure OAuth 2.0 authentication with Google
 - Displays latest emails from user's inbox (last 24 hours)
 - Clean, responsive web interface
 - Session management and logout functionality
-- **Job Application Tracking System** - Automatically processes job-related emails
+
+### Job Application Tracking
+- **Intelligent Email Categorization** - AI classifies job emails using only email body content
+- **Enhanced HTML Processing** - Preserves structure, links, and decodes HTML entities
+- **OCR Image Processing** - Extracts text from all images (up to 10 per email)
+- **Guaranteed Email Saving** - 3-tier fallback ensures NO email is lost
 - **Fetched Emails View** - Dedicated page to view raw emails without AI processing
-- **Enhanced AI Categorization** - Improved email classification accuracy
+- **Performance Optimizations** - Parallel processing for faster email handling
+- **Date Tracking** - Uses actual email received date, not processing date
 
 ## Prerequisites
 
@@ -52,6 +59,7 @@ This is a Flask web application that allows multiple users to authenticate with 
    - Create a Supabase project
    - Get your project URL and API key
    - Update the corresponding values in your `.env` file
+   - Run the schema updates in `supabase_schema_updates.sql` to add date columns
 
 ## Usage
 
@@ -83,31 +91,47 @@ This is a Flask web application that allows multiple users to authenticate with 
 - Use HTTPS in production environments
 - Change the Flask secret key in production
 
+## Performance Improvements
+
+The application now includes several performance optimizations:
+
+1. **Parallel Processing** - Multiple emails are processed concurrently rather than sequentially
+2. **Client Reuse** - AWS Bedrock clients are reused across multiple operations
+3. **Batch Database Operations** - Database queries are batched for efficiency
+4. **Date Indexing** - New date columns enable faster time-based queries
+
 ## Deployment
 
 See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed instructions on deploying this application to Vercel and setting up GitHub secrets.
 
 ## Job Application Tracking System
 
-The application includes an automated job application tracking system that:
+The application includes an automated job application tracking system with advanced email processing:
 
-1. **Fetches last 24 hours Gmail Emails** - Only processes recent emails to avoid re-processing old data
-2. **Extracts raw data** - Captures subject, body, sender, and timestamp from each email
-3. **AI Parser** - Uses AWS Bedrock to extract structured job information:
-   - job_name
-   - company_name
-   - job_link
-   - req_id
-   - additional_details
-4. **Categorization** - Classifies emails as:
-   - Application Submitted
-   - Next Steps (interviews, assessments, etc.)
-   - Reject
-   - Other
-5. **Status Conversion** - Maps categories to consistent statuses for tracking
-6. **Duplicate Prevention** - Checks if jobs already exist in the database
-7. **Data Storage** - Saves structured job data to Supabase
-8. **Status Updates** - Updates existing jobs when new emails arrive
+### Email Fetching & Processing
+1. **Fetches last 24 hours Gmail Emails** - Automatically retrieves recent emails from inbox
+2. **Enhanced HTML Extraction** - Preserves paragraph structure, link text, and decodes HTML entities
+3. **OCR Image Processing** - Extracts text from ALL images (up to 10 per email) using Tesseract
+4. **Extracts raw data** - Captures subject, body, sender, and timestamp from each email
+
+### AI-Powered Categorization
+5. **Body-Only Classification** - AI analyzes ONLY email body content (not subject) for accurate categorization
+6. **Smart Categorization** - Classifies emails into 4 categories:
+   - **Application Submitted** - Job application confirmations
+   - **Next Steps** - Interview/assessment invitations  
+   - **Reject** - Application rejections
+   - **Other** - Non-job emails (verification codes, newsletters, etc.)
+7. **Job Details Extraction** - Uses AWS Bedrock AI to extract:
+   - job_name, company_name, job_link, req_id, additional_details
+
+### Data Management
+8. **Guaranteed Saving** - 3-tier fallback system ensures ALL emails are saved:
+   - Tier 1: Normal AI processing
+   - Tier 2: Fallback to 'other' category if AI fails
+   - Tier 3: Minimal data save as last resort
+9. **Duplicate Prevention** - Updates existing records (same company + job name)
+10. **Date Tracking** - Uses actual email received date from Gmail
+11. **Data Storage** - Saves all emails to Supabase jobs table
 
 ## Fetched Emails Feature
 
@@ -117,26 +141,62 @@ A dedicated `/fetched-emails` route allows users to view their raw Gmail emails 
 - Does not involve any LLM processing
 - Provides a clean interface for reviewing email content
 
-## Enhanced AI Categorization
+## Recent Improvements (December 2024)
 
-The AI email categorization has been improved to better distinguish between different types of emails:
-- More accurate identification of "next steps" emails (only after application submission)
-- Better filtering of incomplete application requests (categorized as "other")
-- Improved security code detection (categorized as "other")
+### Enhanced Email Processing
+1. **HTML Text Extraction**
+   - Preserves paragraph structure and block elements
+   - Extracts link text to identify action phrases (e.g., "Schedule Interview")
+   - Properly decodes HTML entities (`&nbsp;`, `&amp;`, etc.)
+   - Better whitespace normalization
+
+2. **OCR Image Processing**
+   - Removed 200-character restriction - now processes ALL images
+   - Increased image limit from 5 to 10 per email
+   - Detailed logging for OCR operations
+   - Handles image-based job emails (interview details in banners)
+
+3. **AI Categorization**
+   - Uses ONLY email body (removed subject from analysis)
+   - Enhanced prompts handle HTML artifacts and OCR text
+   - Focuses on core message and key phrases
+   - More accurate identification of email types
+
+4. **Error Handling**
+   - 3-tier fallback system prevents data loss
+   - ALL fetched emails are guaranteed to be saved
+   - Failed categorizations default to 'other' category
+   - Comprehensive error logging with visual indicators (✓/✗)
 
 ## How It Works
 
-- Each user gets a unique session and token storage
-- Authentication tokens are securely stored in session
-- The application fetches emails from the authenticated user's inbox
-- Email subjects, snippets, and full body content are displayed in the dashboard
-- Job-related emails are automatically processed and stored in the jobs table
-- Users can manually trigger AI processing of stored emails
+### Authentication Flow
+- Each user authenticates via Google OAuth 2.0
+- Session tokens are securely stored
+- Multi-user support with isolated sessions
+
+### Email Processing Flow
+1. Fetches last 24 hours emails from Gmail API
+2. Pre-processes email content:
+   - Extracts text from HTML with structure preservation
+   - Runs OCR on all images to extract text
+   - Combines text and OCR content
+3. AI categorizes email based on body content only
+4. Extracts job details for relevant categories
+5. Saves to Supabase with actual email received date
+6. Updates existing records if duplicate found
+
+### Data Storage
+- ALL emails are saved to `jobs` table
+- Email body, subject, sender, and timestamp always stored
+- Job details extracted for application/interview/rejection emails
+- Date column uses Gmail's actual email date
+- Failed processing defaults to 'other' category (still saved)
 
 ## Files
 
 - `app.py` - Main Flask application with multi-user support
-- `job_processor.py` - Job application tracking system and AI processing
+- `job_processor.py` - Job application tracking system and AI processing with performance optimizations
 - `main.py` - Command-line interface for single-user usage
 - `templates/` - Web interface templates
   - `index.html` - Main dashboard
@@ -145,6 +205,7 @@ The AI email categorization has been improved to better distinguish between diff
   - `login.html` - Login page
 - `requirements.txt` - Python package dependencies
 - `.env.example` - Template for environment variables
+- `supabase_schema_updates.sql` - Database schema updates for date columns
 - `DEPLOYMENT.md` - Deployment guide for Vercel and GitHub Actions
 
 ## Support

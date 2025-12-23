@@ -5,5 +5,9 @@ google-auth-oauthlib==1.1.0
 google-auth-httplib2==0.1.1
 python-dotenv==1.0.0
 supabase==2.4.5
-boto3==1.34.0
-botocore==1.34.0
+boto3==1.35.0
+botocore==1.35.0
+beautifulsoup4==4.12.2
+# Optional OCR dependencies (uncomment if you want OCR functionality)
+Pillow==10.0.1
+pytesseract==0.3.10
