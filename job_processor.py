@@ -357,13 +357,16 @@ EMAIL BODY TO CLASSIFY:
 {email_body}
 
 CATEGORIES AND DEFINITIONS:
-1. application_submitted - Emails that CONFIRM receipt of a job application WITH NO IMMEDIATE ACTION required
-   - Positive indicators: "thank you for applying", "we have received your application", "application successfully submitted", "application received", "received your application"
-   - Negative indicators (must NOT be in this category): requests for interviews, assessments, or additional information, rejection language
+1. application_submitted - Emails that CONFIRM receipt of a job application or describe the general hiring process WITHOUT requiring IMMEDIATE, SPECIFIC action
+   - Positive indicators: "thank you for applying", "we have received your application", "application successfully submitted", "application received", "received your application", "here's what happens next", "our hiring process", "application review process", "candidate selection process", "we will review your application", "our team will evaluate"
+   - CRITICAL: Emails describing the general hiring timeline or process (e.g., "here's what happens next: 1. Application Review 2. Assessment Process 3. Candidate Selection") should be classified here, NOT as next_steps
+   - Negative indicators (must NOT be in this category): specific requests with links to schedule interviews NOW, specific assessment links to complete NOW, rejection language
 
-2. next_steps - Emails requesting IMMEDIATE action or scheduling (interviews, assessments, etc.)
-   - Positive indicators: "please schedule an interview", "complete the coding assessment", "video interview invitation", "next steps in our process", "assessment link", "schedule your interview", "interview invitation"
-   - Negative indicators (must NOT be in this category): general application confirmations, rejections
+2. next_steps - Emails requesting IMMEDIATE, SPECIFIC action with provided links/instructions (interviews, assessments to complete NOW)
+   - Positive indicators: "please schedule an interview using this link", "complete this coding assessment by [date]", "click here to schedule your interview", "complete the assessment at [specific URL]", "book your interview slot", "take the assessment now"
+   - CRITICAL: Only classify as next_steps if the email contains SPECIFIC, ACTIONABLE requests with links or deadlines - NOT general descriptions of future steps
+   - CRITICAL: Emails that say "you will be invited for an interview" or "we may invite you for assessment" are NOT next_steps (they are application_submitted)
+   - Negative indicators (must NOT be in this category): general application confirmations, general process descriptions without specific action links, rejections
 
 3. reject - Emails DECLINING or ENDING candidacy
    - Positive indicators: "we've decided not to move forward", "unfortunately, you were not selected", "we will not be proceeding", "position has been filled", "decided not to move forward", "regret to inform", "not selected", "other candidates"
