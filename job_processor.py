@@ -349,7 +349,9 @@ def categorize_email_with_ai_client(bedrock_client, email_data):
     email_body = email_data.get("body", "")
 
     prompt = f"""
-You are an expert job application email classifier. Analyze the email body content to determine the correct category.
+You are an expert job application email classifier. Your task is to read the ENTIRE email content carefully and determine the correct category based on the OVERALL TONE and PRIMARY MESSAGE.
+
+CRITICAL INSTRUCTION: READ THE ENTIRE EMAIL BEFORE CLASSIFYING. Do not make premature judgments based on isolated phrases.
 
 IMPORTANT: The email content may include HTML artifacts, OCR-extracted text from images, or formatting noise. Focus on the CORE MESSAGE and KEY PHRASES, ignoring technical noise.
 
@@ -358,9 +360,17 @@ EMAIL BODY TO CLASSIFY:
 
 CATEGORIES AND DEFINITIONS:
 1. application_submitted - Emails that CONFIRM receipt of a job application or describe the general hiring process WITHOUT requiring IMMEDIATE, SPECIFIC action
-   - Positive indicators: "thank you for applying", "we have received your application", "application successfully submitted", "application received", "received your application", "here's what happens next", "our hiring process", "application review process", "candidate selection process", "we will review your application", "our team will evaluate"
+   - Positive indicators: "thank you for applying", "we have received your application", "application successfully submitted", "application received", "received your application", "here's what happens next", "our hiring process", "application review process", "candidate selection process", "we will review your application", "our team will evaluate", "your application has been received"
+   
+   - CRITICAL DISTINCTION - Conditional follow-up language is NORMAL for application acknowledgments:
+     * "we will contact you if your background is a fit" = application_submitted (NOT rejection!)
+     * "we will reach out if we believe you're a good match" = application_submitted (NOT rejection!)
+     * "if your skills align, we will be in touch" = application_submitted (NOT rejection!)
+     * These phrases indicate the NORMAL screening process, NOT rejection
+   
    - CRITICAL: Emails describing the general hiring timeline or process (e.g., "here's what happens next: 1. Application Review 2. Assessment Process 3. Candidate Selection") should be classified here, NOT as next_steps
-   - Negative indicators (must NOT be in this category): specific requests with links to schedule interviews NOW, specific assessment links to complete NOW, rejection language
+   
+   - Negative indicators (must NOT be in this category): specific requests with links to schedule interviews NOW, specific assessment links to complete NOW, EXPLICIT rejection language stating they are NOT moving forward
 
 2. next_steps - Emails requesting IMMEDIATE, SPECIFIC action with provided links/instructions (interviews, assessments to complete NOW)
    - Positive indicators: "please schedule an interview using this link", "complete this coding assessment by [date]", "click here to schedule your interview", "complete the assessment at [specific URL]", "book your interview slot", "take the assessment now"
@@ -368,9 +378,25 @@ CATEGORIES AND DEFINITIONS:
    - CRITICAL: Emails that say "you will be invited for an interview" or "we may invite you for assessment" are NOT next_steps (they are application_submitted)
    - Negative indicators (must NOT be in this category): general application confirmations, general process descriptions without specific action links, rejections
 
-3. reject - Emails DECLINING or ENDING candidacy
-   - Positive indicators: "we've decided not to move forward", "unfortunately, you were not selected", "we will not be proceeding", "position has been filled", "decided not to move forward", "regret to inform", "not selected", "other candidates"
-   - Negative indicators (must NOT be in this category): requests for more information, interview scheduling
+3. reject - Emails EXPLICITLY DECLINING or ENDING candidacy with CLEAR rejection language
+   - CRITICAL: Only classify as reject if the email EXPLICITLY states they are NOT moving forward with the candidacy
+   
+   - Positive indicators for rejection (these are ACTUAL rejections):
+     * "we've decided not to move forward with your candidacy"
+     * "unfortunately, you were not selected"
+     * "we will not be proceeding with your application"
+     * "the position has been filled by another candidate"
+     * "we have decided to pursue other candidates"
+     * "regret to inform you that you have not been selected"
+     * "your application was not successful"
+     * "we are moving forward with other applicants"
+   
+   - CRITICAL DISTINCTION - These are NOT rejections (they are application_submitted):
+     * "we will contact you IF you're a fit" = NOT a rejection (it's conditional follow-up)
+     * "if we believe you're a good match, we'll reach out" = NOT a rejection
+     * "we'll be in touch if your skills align" = NOT a rejection
+   
+   - Negative indicators (must NOT be classified as rejection): application confirmations with conditional follow-up language, requests for more information, interview scheduling
 
 4. other - ALL other emails including:
    - Security/password emails: "verify your email address", "password reset request"
@@ -379,12 +405,14 @@ CATEGORIES AND DEFINITIONS:
    - Follow-ups: "checking on your application status" (when sent by applicant)
 
 IMPORTANT CLASSIFICATION RULES:
+- READ THE ENTIRE EMAIL before making a decision
+- The PRIMARY MESSAGE and OVERALL TONE matter more than individual phrases
 - Choose ONLY ONE category that BEST fits the email's primary purpose
-- When uncertain, prefer "other" over incorrect classification
+- When uncertain between application_submitted and reject, ask yourself: "Does this email EXPLICITLY say they are NOT moving forward?" If NO, it's application_submitted
 - Body content is MORE IMPORTANT than subject line
+- Conditional follow-up language like "we'll contact you if..." is STANDARD in application acknowledgments, NOT rejection
 - NEVER classify emails requesting completion of incomplete applications as "next_steps"
 - NEVER classify follow-up emails (checking status) as any category except "other"
-- NEVER classify rejection follow-ups as "reject" unless they contain explicit rejection language
 - IGNORE HTML artifacts like "[Image Content Extracted via OCR]", extra whitespace, or formatting marks
 - FOCUS on the actual message content, especially ACTION VERBS and KEY PHRASES
 - If the email contains both confirmation AND next steps, classify as "next_steps" (the more important action)
@@ -399,11 +427,24 @@ RESPONSE FORMAT:
 Respond ONLY with valid JSON in this exact format:
 {{"category": "application_submitted"}}
 
-VALID CATEGORIES:
+VALID CATEGORIES (respond with EXACTLY one of these):
 - application_submitted
 - next_steps
-- reject
+- reject  (NOT "rejected" - use exactly "reject")
 - other
+
+CLASSIFICATION EXAMPLES:
+Example 1 - Application Acknowledgment (NOT rejection):
+"Thank you for applying. Your application has been received. We will review your resume and contact you if we believe your background is a good match."
+Category: application_submitted (conditional follow-up is normal, NOT rejection)
+
+Example 2 - Actual Rejection:
+"Thank you for your interest. Unfortunately, we have decided to move forward with other candidates whose qualifications more closely match our needs."
+Category: reject (explicit decision NOT to proceed)
+
+Example 3 - Application Acknowledgment with process description:
+"Thank you for applying to DRW. Your application has been received and our team will begin reviewing it shortly. If your background is a fit for this role, we will contact you soon."
+Category: application_submitted (acknowledgment + conditional follow-up = normal process)
 
 CLASSIFICATION RESULT:
 """
@@ -460,6 +501,11 @@ CLASSIFICATION RESULT:
         
         category = data.get("category", "").lower().strip()
         print(f"Email categorized as: {category}")
+        
+        # Normalize common variations (AI sometimes returns "rejected" instead of "reject")
+        if category == "rejected":
+            category = "reject"
+            print(f"Normalized 'rejected' to 'reject'")
         
         # Ensure output is one of the allowed values
         valid = {"application_submitted", "next_steps", "reject", "other"}
@@ -802,23 +848,17 @@ def process_job_email_optimized(bedrock_client, user_email, email_data, job_look
             # STEP 5: Convert category → job status
             status = convert_category_to_status(category)
             
-            # STEP 3: AI Parser → Extract job details (only for relevant categories)
-            if category in ['application_submitted', 'next_steps']:
-                print("Extracting job details with AI...")
-                try:
-                    job_details = extract_job_details_with_ai_client(bedrock_client, email_data)
-                    if not job_details:
-                        print("Failed to extract job details, using defaults")
-                        job_details = {
-                            'job_name': '',
-                            'company_name': '',
-                            'job_link': '',
-                            'req_id': '',
-                            'additional_details': ''
-                        }
-                except Exception as extraction_error:
-                    print(f"Error extracting job details: {extraction_error}")
-                    # Continue with empty job details
+            # STEP 3: AI Parser → Extract job details for ALL categories
+            # This ensures we capture company/job info for all emails including:
+            # - application_submitted: track which jobs you applied to
+            # - next_steps: track interview/assessment requests
+            # - reject: track which companies/jobs rejected you
+            # - other: track job alerts and recommendations
+            print("Extracting job details with AI...")
+            try:
+                job_details = extract_job_details_with_ai_client(bedrock_client, email_data)
+                if not job_details:
+                    print("Failed to extract job details, using defaults")
                     job_details = {
                         'job_name': '',
                         'company_name': '',
@@ -826,6 +866,16 @@ def process_job_email_optimized(bedrock_client, user_email, email_data, job_look
                         'req_id': '',
                         'additional_details': ''
                     }
+            except Exception as extraction_error:
+                print(f"Error extracting job details: {extraction_error}")
+                # Continue with empty job details
+                job_details = {
+                    'job_name': '',
+                    'company_name': '',
+                    'job_link': '',
+                    'req_id': '',
+                    'additional_details': ''
+                }
         except Exception as categorization_error:
             print(f"Error during AI categorization: {categorization_error}")
             print("Falling back to 'other' category to ensure email is still saved")
