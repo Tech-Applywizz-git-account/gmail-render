@@ -623,6 +623,19 @@ def process_stored_emails_route():
         print(f"Error processing stored emails: {e}")
         return f"Error processing stored emails: {str(e)}"
 
+# Routes for privacy policy and terms of service
+@app.route('/privacy-policy.html')
+def privacy_policy():
+    """Serve the privacy policy page"""
+    from flask import send_from_directory
+    return send_from_directory('.', 'privacy-policy.html')
+
+@app.route('/terms-of-service.html')
+def terms_of_service():
+    """Serve the terms of service page"""
+    from flask import send_from_directory
+    return send_from_directory('.', 'terms-of-service.html')
+
 # Flask route to display fetched emails without LLM processing
 @app.route('/fetched-emails')
 def fetched_emails():

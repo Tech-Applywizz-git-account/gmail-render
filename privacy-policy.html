@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Privacy Policy - Gmail Job Tracker</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            color: #333;
+        }
+        h1 {
+            color: #1a73e8;
+            border-bottom: 3px solid #1a73e8;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #1a73e8;
+            margin-top: 30px;
+        }
+        .last-updated {
+            color: #666;
+            font-style: italic;
+            margin-bottom: 30px;
+        }
+        .section {
+            margin-bottom: 30px;
+        }
+        ul {
+            padding-left: 20px;
+        }
+        li {
+            margin-bottom: 10px;
+        }
+        .contact {
+            background-color: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 30px;
+        }
+        .highlight {
+            background-color: #fff9e6;
+            padding: 15px;
+            border-left: 4px solid #ffa500;
+            margin: 20px 0;
+        }
+        a {
+            color: #1a73e8;
+            text-decoration: none;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <h1>Privacy Policy for Gmail Job Tracker</h1>
+    <p class="last-updated">Last Updated: December 29, 2024</p>
+
+    <div class="highlight">
+        <strong>Important:</strong> This application helps you track job applications by reading your Gmail inbox. 
+        We take your privacy seriously and only access the data necessary to provide our service.
+    </div>
+
+    <div class="section">
+        <h2>1. Introduction</h2>
+        <p>
+            Gmail Job Tracker ("we," "our," or "the app") is a job application tracking tool that helps you 
+            organize and manage job applications from your Gmail inbox. This Privacy Policy explains how we 
+            collect, use, and protect your personal information.
+        </p>
+    </div>
+
+    <div class="section">
+        <h2>2. Information We Collect</h2>
+        <p>When you use our service, we collect the following information:</p>
+        <ul>
+            <li><strong>Gmail Email Address:</strong> Your primary Gmail address for authentication and identification</li>
+            <li><strong>Email Content:</strong> Email messages from your Gmail inbox (limited to the last 24 hours by default)</li>
+            <li><strong>Extracted Job Details:</strong> Information extracted from job-related emails including:
+                <ul>
+                    <li>Company names</li>
+                    <li>Job titles/positions</li>
+                    <li>Application status (submitted, interview, rejected, etc.)</li>
+                    <li>Job links and requisition IDs</li>
+                    <li>Email timestamps and senders</li>
+                </ul>
+            </li>
+            <li><strong>Usage Data:</strong> Login timestamps and session information</li>
+        </ul>
+    </div>
+
+    <div class="section">
+        <h2>3. How We Use Your Information</h2>
+        <p>We use the collected information solely for the following purposes:</p>
+        <ul>
+            <li><strong>Email Categorization:</strong> Automatically classify emails as job applications, interview requests, rejections, or other categories</li>
+            <li><strong>Job Detail Extraction:</strong> Extract and organize job application information from your emails</li>
+            <li><strong>Dashboard Display:</strong> Present your job applications in an organized dashboard</li>
+            <li><strong>Service Improvement:</strong> Improve our AI categorization accuracy and user experience</li>
+        </ul>
+        
+        <div class="highlight">
+            <strong>What We DON'T Do:</strong>
+            <ul>
+                <li>❌ We never modify, delete, or send emails on your behalf</li>
+                <li>❌ We never share your data with third parties for marketing purposes</li>
+                <li>❌ We never sell your personal information</li>
+                <li>❌ We never access emails beyond what's necessary for job tracking</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>4. How We Store and Protect Your Information</h2>
+        <p><strong>Data Storage:</strong></p>
+        <ul>
+            <li><strong>Database:</strong> Supabase (PostgreSQL) - Industry-standard secure database</li>
+            <li><strong>Encryption:</strong> All data is encrypted in transit (HTTPS/TLS) and at rest</li>
+            <li><strong>Access Control:</strong> Only you can access your data through secure authentication</li>
+        </ul>
+
+        <p><strong>Security Measures:</strong></p>
+        <ul>
+            <li>OAuth 2.0 authentication (no password storage)</li>
+            <li>Secure API connections</li>
+            <li>Regular security updates</li>
+            <li>Limited data retention</li>
+        </ul>
+    </div>
+
+    <div class="section">
+        <h2>5. Third-Party Services</h2>
+        <p>Our application uses the following third-party services to provide functionality:</p>
+        <ul>
+            <li><strong>Google Gmail API:</strong> For reading emails from your inbox
+                <ul>
+                    <li>Scope: gmail.readonly (read-only access)</li>
+                    <li>Purpose: Fetch job-related emails</li>
+                    <li>Privacy Policy: <a href="https://policies.google.com/privacy" target="_blank">Google Privacy Policy</a></li>
+                </ul>
+            </li>
+            <li><strong>AWS Bedrock (Amazon):</strong> For AI-powered email categorization and job detail extraction
+                <ul>
+                    <li>Purpose: Process email content to identify job applications</li>
+                    <li>Data sent: Email subject, body, and sender</li>
+                    <li>Privacy Policy: <a href="https://aws.amazon.com/privacy/" target="_blank">AWS Privacy Policy</a></li>
+                </ul>
+            </li>
+            <li><strong>Supabase:</strong> For secure data storage
+                <ul>
+                    <li>Purpose: Store extracted job application details</li>
+                    <li>Security: Enterprise-grade PostgreSQL with encryption</li>
+                    <li>Privacy Policy: <a href="https://supabase.com/privacy" target="_blank">Supabase Privacy Policy</a></li>
+                </ul>
+            </li>
+        </ul>
+    </div>
+
+    <div class="section">
+        <h2>6. Data Retention</h2>
+        <ul>
+            <li><strong>Active Use:</strong> We retain your job tracking data while you actively use the service</li>
+            <li><strong>Inactive Accounts:</strong> Data may be deleted after 12 months of inactivity</li>
+            <li><strong>User-Requested Deletion:</strong> You can request data deletion at any time (see Section 8)</li>
+            <li><strong>Email Content:</strong> We only process emails for extraction; full email bodies are not permanently stored</li>
+        </ul>
+    </div>
+
+    <div class="section">
+        <h2>7. Your Rights and Choices</h2>
+        <p>You have the following rights regarding your data:</p>
+        <ul>
+            <li><strong>Access:</strong> View all data we have collected about you</li>
+            <li><strong>Correction:</strong> Request corrections to inaccurate information</li>
+            <li><strong>Deletion:</strong> Request complete deletion of your data</li>
+            <li><strong>Revoke Access:</strong> Revoke app permissions at any time through your Google Account settings</li>
+            <li><strong>Export:</strong> Request an export of your tracked job application data</li>
+            <li><strong>Opt-Out:</strong> Stop using the service at any time</li>
+        </ul>
+
+        <p><strong>How to Revoke Access:</strong></p>
+        <ol>
+            <li>Go to your <a href="https://myaccount.google.com/permissions" target="_blank">Google Account Permissions</a></li>
+            <li>Find "Gmail Job Tracker"</li>
+            <li>Click "Remove Access"</li>
+        </ol>
+    </div>
+
+    <div class="section">
+        <h2>8. Data Deletion Requests</h2>
+        <p>To request deletion of your data:</p>
+        <ul>
+            <li>Email us at: <strong>bhanutejathouti@gmail.com</strong></li>
+            <li>Include your Gmail email address</li>
+            <li>We will delete all your data within 30 days</li>
+            <li>You will receive confirmation once deletion is complete</li>
+        </ul>
+    </div>
+
+    <div class="section">
+        <h2>9. Children's Privacy</h2>
+        <p>
+            Our service is not intended for users under the age of 18. We do not knowingly collect 
+            personal information from children under 18. If you are a parent or guardian and believe 
+            your child has provided us with personal information, please contact us.
+        </p>
+    </div>
+
+    <div class="section">
+        <h2>10. International Data Transfers</h2>
+        <p>
+            Your data may be transferred to and processed in countries other than your country of residence. 
+            These countries may have different data protection laws. We ensure appropriate safeguards are 
+            in place to protect your information in accordance with this Privacy Policy.
+        </p>
+    </div>
+
+    <div class="section">
+        <h2>11. Changes to This Privacy Policy</h2>
+        <p>
+            We may update this Privacy Policy from time to time. We will notify you of any changes by:
+        </p>
+        <ul>
+            <li>Updating the "Last Updated" date at the top of this policy</li>
+            <li>Sending you an email notification (for significant changes)</li>
+            <li>Displaying a notice in the application</li>
+        </ul>
+        <p>
+            Your continued use of the service after changes constitutes acceptance of the updated policy.
+        </p>
+    </div>
+
+    <div class="section">
+        <h2>12. Legal Compliance</h2>
+        <p>We comply with applicable data protection laws including:</p>
+        <ul>
+            <li>General Data Protection Regulation (GDPR) - European Union</li>
+            <li>California Consumer Privacy Act (CCPA) - California, USA</li>
+            <li>Google API Services User Data Policy</li>
+        </ul>
+    </div>
+
+    <div class="section">
+        <h2>13. Google API Services User Data Policy Compliance</h2>
+        <p>
+            Gmail Job Tracker's use and transfer of information received from Google APIs adheres to the 
+            <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank">Google API Services User Data Policy</a>, 
+            including the Limited Use requirements.
+        </p>
+        <p><strong>Specifically:</strong></p>
+        <ul>
+            <li>We only request the minimum Gmail scope necessary (gmail.readonly)</li>
+            <li>We use Gmail data solely for providing job tracking functionality</li>
+            <li>We do not transfer Gmail data to third parties except for necessary service providers</li>
+            <li>We do not use Gmail data for advertising purposes</li>
+            <li>All access to Gmail data is logged and monitored</li>
+        </ul>
+    </div>
+
+    <div class="contact">
+        <h2>14. Contact Us</h2>
+        <p>If you have any questions, concerns, or requests regarding this Privacy Policy or your data, please contact us:</p>
+        <ul>
+            <li><strong>Email:</strong> bhanutejathouti@gmail.com</li>
+            <li><strong>GitHub:</strong> <a href="https://github.com/Tech-Applywizz-git-account/gmail-render" target="_blank">github.com/Tech-Applywizz-git-account/gmail-render</a></li>
+            <li><strong>Response Time:</strong> We aim to respond within 48 hours</li>
+        </ul>
+    </div>
+
+    <div class="section">
+        <h2>15. Consent</h2>
+        <p>
+            By using Gmail Job Tracker, you consent to this Privacy Policy and agree to its terms. 
+            If you do not agree with this policy, please do not use our service.
+        </p>
+    </div>
+
+    <hr style="margin: 40px 0; border: none; border-top: 1px solid #ddd;">
+    
+    <p style="text-align: center; color: #666; font-size: 14px;">
+        © 2024 Gmail Job Tracker. All rights reserved.
+    </p>
+</body>
+</html>
