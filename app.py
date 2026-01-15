@@ -1,4 +1,4 @@
-from flask import Flask, render_template, session, redirect, url_for, request, flash
+from flask import Flask, render_template, session, redirect, url_for, request, flash, jsonify
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 import os.path
@@ -113,11 +113,11 @@ def format_timestamp(timestamp_str):
     except (ValueError, TypeError):
         return 'Unknown'
 
-# Configure session for Vercel - more permissive settings for testing
+# Configure session for Vercel - Extended session lifetime for persistent login
 app.config['SESSION_COOKIE_SECURE'] = False  # Changed to False for testing
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
-app.config['PERMANENT_SESSION_LIFETIME'] = 3600  # 1 hour
+app.config['PERMANENT_SESSION_LIFETIME'] = 30 * 24 * 60 * 60  # 30 days (instead of 1 hour)
 
 # Print environment variables for debugging (remove in production)
 print("GOOGLE_CLIENT_ID:", os.environ.get('GOOGLE_CLIENT_ID'))
@@ -130,6 +130,13 @@ SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
 SUPABASE_URL = os.environ.get('SUPABASE_URL')
 SUPABASE_KEY = os.environ.get('SUPABASE_KEY')
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_URL and SUPABASE_KEY else None
+
+# Client Project Redirect Configuration
+CLIENT_REDIRECT_URL = os.environ.get('CLIENT_REDIRECT_URL')  # URL to redirect after email processing
+CLIENT_LOGOUT_URL = os.environ.get('CLIENT_LOGOUT_URL')  # URL to redirect after logout
+print(f"CLIENT_REDIRECT_URL: {'set' if CLIENT_REDIRECT_URL else 'not set'}")
+print(f"CLIENT_LOGOUT_URL: {'set' if CLIENT_LOGOUT_URL else 'not set'}")
+
 
 # Create credentials dictionary from environment variables
 def get_credentials_dict():
@@ -220,6 +227,68 @@ def get_user_tracking_data():
         print(f"Error reading user tracking data from Supabase: {e}")
         return {"users": []}
 
+# Function to get client type for multi-AI provider routing
+def get_client_type(user_email):
+    """
+    Lookup client type from clients table to determine AI provider.
+    
+    Args:
+        user_email (str): User's company email address
+        
+    Returns:
+        dict: {
+            'is_job_board_client': bool,  # True = Bedrock, False = ChatGPT
+            'client_id': uuid or None,
+            'applywizz_id': str or None
+        }
+    """
+    if not supabase:
+        print("Supabase client not configured for client lookup")
+        return {'is_job_board_client': False, 'client_id': None, 'applywizz_id': None}
+    
+    try:
+        # Query clients table with normalized email (matching the index)
+        normalized_email = user_email.strip().lower()
+        print(f"Looking up client type for: {normalized_email}")
+        
+        response = supabase.table("clients") \
+            .select("id, opted_job_links, applywizz_id") \
+            .eq("company_email", normalized_email) \
+            .execute()
+        
+        if response.data:
+            client = response.data[0]
+            is_job_board = client.get('opted_job_links', False)
+            
+            client_type = "Job Board (Bedrock)" if is_job_board else "Regular (ChatGPT)"
+            print(f"✓ Client found: {client_type}")
+            
+            return {
+                'is_job_board_client': is_job_board,
+                'client_id': client.get('id'),
+                'applywizz_id': client.get('applywizz_id')
+            }
+        else:
+            # User not in clients table - default to regular client (ChatGPT)
+            print(f"⚠ User {normalized_email} not found in clients table, defaulting to Regular client (ChatGPT)")
+            return {
+                'is_job_board_client': False,
+                'client_id': None,
+                'applywizz_id': None
+            }
+            
+    except Exception as e:
+        print(f"Error looking up client type: {e}")
+        import traceback
+        traceback.print_exc()
+        # Fallback to regular client on error
+        return {
+            'is_job_board_client': False,
+            'client_id': None,
+            'applywizz_id': None
+        }
+
+
 # Function to save emails to Supabase
 def save_emails_to_supabase(user_email, emails):
     if not supabase:
@@ -297,39 +366,276 @@ def process_stored_emails_with_llm(user_email):
         traceback.print_exc()
         return 0
 
+# ===== Token Storage Helper Functions =====
+def save_tokens_to_db(user_email, credentials):
+    """
+    Save OAuth tokens to Supabase for persistent storage.
+    
+    Args:
+        user_email (str): User's email address
+        credentials: Google OAuth credentials object
+        
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    if not supabase:
+        print("Supabase client not configured")
+        return False
+    
+    try:
+        # Calculate token expiry timestamp (milliseconds)
+        import time
+        if credentials.expiry:
+            token_expiry = int(credentials.expiry.timestamp() * 1000)
+        else:
+            # Default to 1 hour from now if no expiry
+            token_expiry = int((time.time() + 3600) * 1000)
+        
+        token_data = {
+            'user_email': user_email,
+            'access_token': credentials.token,
+            'refresh_token': credentials.refresh_token,
+            'token_expiry': token_expiry,
+            'updated_at': datetime.now().isoformat()
+        }
+        
+        # Check if token already exists
+        existing = supabase.table("user_tokens").select("*").eq("user_email", user_email).execute()
+        
+        if existing.data:
+            # Update existing token
+            supabase.table("user_tokens").update(token_data).eq("user_email", user_email).execute()
+            print(f"Updated tokens in database for user: {user_email}")
+        else:
+            # Insert new token
+            supabase.table("user_tokens").insert(token_data).execute()
+            print(f"Saved new tokens to database for user: {user_email}")
+        
+        return True
+    except Exception as e:
+        print(f"Error saving tokens to database: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+def load_tokens_from_db(user_email):
+    """
+    Load OAuth tokens from Supabase.
+    
+    Args:
+        user_email (str): User's email address
+        
+    Returns:
+        Credentials object if found and valid, None otherwise
+    """
+    if not supabase:
+        print("Supabase client not configured")
+        return None
+    
+    try:
+        print(f"Loading tokens from database for user: {user_email}")
+        response = supabase.table("user_tokens").select("*").eq("user_email", user_email).execute()
+        
+        if not response.data:
+            print(f"No tokens found in database for user: {user_email}")
+            return None
+        
+        token_record = response.data[0]
+        
+        # Reconstruct credentials object
+        creds_info = {
+            'token': token_record['access_token'],
+            'refresh_token': token_record.get('refresh_token'),
+            'token_uri': 'https://oauth2.googleapis.com/token',
+            'client_id': os.environ.get('GOOGLE_CLIENT_ID'),
+            'client_secret': os.environ.get('GOOGLE_CLIENT_SECRET'),
+            'scopes': SCOPES
+        }
+        
+        creds = Credentials.from_authorized_user_info(creds_info, SCOPES)
+        print(f"Successfully loaded tokens from database for user: {user_email}")
+        return creds
+        
+    except Exception as e:
+        print(f"Error loading tokens from database: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+def delete_tokens_from_db(user_email):
+    """
+    Delete tokens from database on logout.
+    
+    Args:
+        user_email (str): User's email address
+        
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    if not supabase:
+        print("Supabase client not configured")
+        return False
+    
+    try:
+        print(f"Deleting tokens from database for user: {user_email}")
+        supabase.table("user_tokens").delete().eq("user_email", user_email).execute()
+        print(f"Successfully deleted tokens for user: {user_email}")
+        return True
+    except Exception as e:
+        print(f"Error deleting tokens from database: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+def update_last_sync_time(user_email):
+    """
+    Update last sync timestamp after successful email fetch.
+    
+    Args:
+        user_email (str): User's email address
+        
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    if not supabase:
+        print("Supabase client not configured")
+        return False
+    
+    try:
+        import time
+        current_time_ms = int(time.time() * 1000)
+        
+        supabase.table("user_tokens").update({
+            'last_sync_time': current_time_ms,
+            'updated_at': datetime.now().isoformat()
+        }).eq("user_email", user_email).execute()
+        
+        print(f"Updated last sync time for user: {user_email}")
+        return True
+    except Exception as e:
+        print(f"Error updating last sync time: {e}")
+        return False
+
+def get_last_sync_time(user_email):
+    """
+    Get last sync timestamp to determine incremental sync.
+    
+    Args:
+        user_email (str): User's email address
+        
+    Returns:
+        int: Unix timestamp in seconds, or None if not found
+    """
+    if not supabase:
+        print("Supabase client not configured")
+        return None
+    
+    try:
+        response = supabase.table("user_tokens").select("last_sync_time").eq("user_email", user_email).execute()
+        
+        if response.data and response.data[0].get('last_sync_time'):
+            # Convert milliseconds to seconds
+            last_sync_ms = response.data[0]['last_sync_time']
+            last_sync_seconds = int(last_sync_ms / 1000)
+            print(f"Last sync time for {user_email}: {last_sync_seconds}")
+            return last_sync_seconds
+        
+        print(f"No last sync time found for user: {user_email}")
+        return None
+    except Exception as e:
+        print(f"Error getting last sync time: {e}")
+        return None
+
 # Function to authenticate and get Gmail service for current user
 def get_gmail_service():
+    """
+    Get Gmail API service with persistent token storage.
+    
+    This function implements 3-tier token retrieval:
+    1. Try loading from Flask session (fast path)
+    2. Try loading from database if session empty
+    3. Auto-refresh expired tokens and save back to DB
+    
+    Returns:
+        Gmail service object or None if authentication required
+    """
     print(f"get_gmail_service called with session: {dict(session)}")
     
     creds = None
+    user_email = None
     
-    # For Vercel deployment, we'll use session-based token storage
-    # In a production environment, you should use a database
+    # Step 1: Try loading from session (fast path)
     if 'gmail_token' in session:
         # Convert session data back to dictionary if it's a string
         token_data = session['gmail_token']
         if isinstance(token_data, str):
             token_data = json.loads(token_data)
         creds = Credentials.from_authorized_user_info(token_data, SCOPES)
+        print("Loaded credentials from session")
     
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
+    # Step 2: If not in session, try loading from database
+    if not creds:
+        # Try to get user email from session
+        if 'user_email' in session:
+            user_email = session['user_email']
+            print(f"Attempting to load tokens from database for: {user_email}")
+            creds = load_tokens_from_db(user_email)
+            
+            if creds:
+                # Save to session for future requests
+                session['gmail_token'] = creds.to_json()
+                print("Loaded credentials from database and saved to session")
+    
+    # Step 3: Refresh if expired
+    if creds:
+        if creds.expired and creds.refresh_token:
             try:
+                print("Token expired, attempting to refresh...")
                 creds.refresh(Request())
+                
                 # Save refreshed credentials to session as JSON string
                 session['gmail_token'] = creds.to_json()
+                print("Token refreshed successfully")
+                
+                # Also save to database if we have user email
+                if not user_email:
+                    # Try to get user email from profile
+                    try:
+                        temp_service = build('gmail', 'v1', credentials=creds)
+                        profile = temp_service.users().getProfile(userId='me').execute()
+                        user_email = profile.get('emailAddress', 'unknown')
+                    except:
+                        pass
+                
+                if user_email:
+                    save_tokens_to_db(user_email, creds)
+                    # Also save email to session for future use
+                    session['user_email'] = user_email
+                    
             except Exception as e:
                 print(f"Error refreshing credentials: {e}")
                 return None
-        else:
-            return None  # Need to re-authenticate
-            
-    service = build('gmail', 'v1', credentials=creds)
-    return service
+    
+    # Step 4: Return service or None
+    if creds and creds.valid:
+        service = build('gmail', 'v1', credentials=creds)
+        return service
+    
+    print("No valid credentials available, need to re-authenticate")
+    return None  # Need to re-authenticate
 
 # Function to fetch email details
-def get_emails():
-    """Fetch emails from the last 24 hours."""
+def get_emails(since_timestamp=None):
+    """
+    Fetch emails from the last 24 hours or since a specific timestamp.
+    
+    Args:
+        since_timestamp (int): Unix timestamp in seconds. If provided, fetches emails after this time.
+                              If None, fetches last 24 hours.
+    
+    Returns:
+        list: List of email dictionaries
+    """
     print("Fetching emails...")
     service = get_gmail_service()
     if not service:
@@ -338,12 +644,18 @@ def get_emails():
         
     try:
         print("Calling Gmail API...")
-        # Calculate timestamp for 24 hours ago
+        # Calculate timestamp
         import time
-        twenty_four_hours_ago = int(time.time() * 1000) - (24 * 60 * 60 * 1000)
+        if since_timestamp is None:
+            # Default: last 24 hours
+            twenty_four_hours_ago = int(time.time() * 1000) - (24 * 60 * 60 * 1000)
+            query_timestamp = twenty_four_hours_ago // 1000
+        else:
+            # Use provided timestamp (already in seconds)
+            query_timestamp = since_timestamp
         
-        # Create query to fetch emails from the last 24 hours
-        query = f"after:{twenty_four_hours_ago // 1000}"
+        # Create query to fetch emails after timestamp
+        query = f"after:{query_timestamp}"
         
         # Fetch emails from the last 24 hours (no maxResults limit)
         results = service.users().messages().list(
@@ -454,6 +766,12 @@ def login():
     print(f"Request host: {request.host}")
     print(f"Request scheme: {request.scheme}")
     
+    # Capture redirect URL from query parameter if provided
+    redirect_url = request.args.get('redirect_url')
+    if redirect_url:
+        session['post_auth_redirect_url'] = redirect_url
+        print(f"Stored redirect URL in session: {redirect_url}")
+    
     try:
         # Create OAuth flow using environment variables
         credentials_dict = get_credentials_dict()
@@ -528,6 +846,7 @@ def callback():
         # Save credentials to session as JSON string
         creds = flow.credentials
         session['gmail_token'] = creds.to_json()
+        session.permanent = True  # Make session last 30 days
         print("Credentials saved to session")
         print(f"Session after saving credentials: {dict(session)}")
         
@@ -536,6 +855,12 @@ def callback():
         profile = service.users().getProfile(userId='me').execute()
         user_email = profile.get('emailAddress', 'unknown')
         print(f"User email: {user_email}")
+        
+        # Save user email to session for future use
+        session['user_email'] = user_email
+        
+        # NEW: Save tokens to database for persistent login
+        save_tokens_to_db(user_email, creds)
         
         # Track user login
         track_user_login(user_email)
@@ -548,7 +873,46 @@ def callback():
         # Explicitly save session for Vercel
         session.permanent = True
         
-        return redirect(url_for('index'))
+        # Fetch and process initial emails
+        print("Fetching initial emails after OAuth...")
+        emails = get_emails()
+        print(f"Fetched {len(emails)} emails")
+        
+        # Process job emails if job processor is available
+        if JOB_PROCESSOR_AVAILABLE and emails and (process_job_emails_parallel or process_job_email):
+            try:
+                print(f"Processing {len(emails)} job emails for user: {user_email}")
+                
+                # Process newly fetched emails
+                processed_count = 0
+                if process_job_emails_parallel and len(emails) > 1:
+                    processed_count = process_job_emails_parallel(user_email, emails)
+                elif process_job_email:
+                    for email_data in emails:
+                        if process_job_email(user_email, email_data):
+                            processed_count += 1
+                
+                print(f"Processed {processed_count} emails with AI")
+                
+                # Save emails to Supabase
+                if emails:
+                    save_emails_to_supabase(user_email, emails)
+                    
+            except Exception as e:
+                print(f"Error processing job emails in callback: {e}")
+        
+        # Determine where to redirect (for the "Go Back" button)
+        # Priority: 1. Session redirect_url, 2. CLIENT_REDIRECT_URL, 3. Default index
+        redirect_url = session.pop('post_auth_redirect_url', None) or CLIENT_REDIRECT_URL
+        
+        # Show success page with stats instead of automatic redirect
+        return render_template('sync_success.html', 
+                             emails_count=len(emails),
+                             processed_count=processed_count if 'processed_count' in locals() else 0,
+                             jobs_count=processed_count if 'processed_count' in locals() else 0,
+                             redirect_url=redirect_url)
+
+
         
     except Exception as e:
         # Handle OAuth errors
@@ -562,10 +926,40 @@ def callback():
 # Logout route
 @app.route('/logout')
 def logout():
+    """Logout user and delete tokens from database for security"""
+    # Get user email before clearing session
+    user_email = None
+    try:
+        if 'user_email' in session:
+            user_email = session['user_email']
+        elif 'gmail_token' in session:
+            # Try to get email from service
+            service = get_gmail_service()
+            if service:
+                profile = service.users().getProfile(userId='me').execute()
+                user_email = profile.get('emailAddress')
+    except Exception as e:
+        print(f"Error getting user email during logout: {e}")
+    
+    # Delete tokens from database for security
+    if user_email:
+        print(f"Logging out user: {user_email}")
+        delete_tokens_from_db(user_email)
+    
     # Clear session
     session.clear()
     
-    return redirect(url_for('login_page'))
+    # Determine where to redirect after logout
+    # Priority: 1. CLIENT_LOGOUT_URL, 2. CLIENT_REDIRECT_URL, 3. Default login page
+    if CLIENT_LOGOUT_URL:
+        print(f"Redirecting to CLIENT_LOGOUT_URL: {CLIENT_LOGOUT_URL}")
+        return redirect(CLIENT_LOGOUT_URL)
+    elif CLIENT_REDIRECT_URL:
+        print(f"Redirecting to CLIENT_REDIRECT_URL: {CLIENT_REDIRECT_URL}")
+        return redirect(CLIENT_REDIRECT_URL)
+    else:
+        print("No client URLs configured, redirecting to login page")
+        return redirect(url_for('login_page'))
 
 # Admin route to view user tracking data
 @app.route('/admin')
@@ -655,6 +1049,277 @@ def fetched_emails():
         traceback.print_exc()
         return render_template('fetched_emails.html', emails=[], error="Failed to fetch emails: " + str(e))
 
+# Auto-sync API endpoint for AJAX email fetching
+@app.route('/api/sync-emails', methods=['POST'])
+def sync_emails():
+    """
+    API endpoint to sync new emails without page reload.
+    Supports incremental sync based on last sync time.
+    
+    Returns:
+        JSON response with new emails count and email data
+    """
+    if 'gmail_token' not in session and 'user_email' not in session:
+        return jsonify({'success': False, 'error': 'Not authenticated'}), 401
+    
+    try:
+        # Get user email
+        service = get_gmail_service()
+        if not service:
+            return jsonify({'success': False, 'error': 'Failed to get Gmail service'}), 401
+        
+        profile = service.users().getProfile(userId='me').execute()
+        user_email = profile.get('emailAddress', 'unknown')
+        print(f"Syncing emails for user: {user_email}")
+        
+        # Get last sync time from database
+        last_sync = get_last_sync_time(user_email)
+        
+        if last_sync:
+            print(f"Performing incremental sync since: {last_sync}")
+        else:
+            print("Performing full sync (last 24 hours)")
+        
+        # Fetch emails since last sync (or last 24 hours if first sync)
+        emails = get_emails(since_timestamp=last_sync)
+        print(f"Found {len(emails)} new emails")
+        
+        # Process job emails if available
+        processed_count = 0
+        if JOB_PROCESSOR_AVAILABLE and process_job_emails_parallel:
+            print("Processing emails with AI...")
+            processed_count = process_job_emails_parallel(user_email, emails)
+            print(f"Processed {processed_count} emails")
+        
+        # Update last sync time in database
+        update_last_sync_time(user_email)
+        
+        # Save raw emails to Supabase
+        if emails:
+            save_emails_to_supabase(user_email, emails)
+        
+        return jsonify({
+            'success': True,
+            'new_emails_count': len(emails),
+            'processed_count': processed_count,
+            'emails': emails[:10],  # Return first 10 for UI update
+            'message': f'Successfully synced {len(emails)} new email(s)'
+        })
+    
+    except Exception as e:
+        print(f"Error in sync_emails: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# API logout endpoint for client projects
+@app.route('/api/logout', methods=['POST', 'GET'])
+def api_logout():
+    """
+    API endpoint for logging out from client projects.
+    Can be called via AJAX POST or as a simple GET request.
+    
+    Returns:
+        JSON response with success status
+    """
+    # Get user email before clearing session
+    user_email = None
+    try:
+        if 'user_email' in session:
+            user_email = session['user_email']
+        elif 'gmail_token' in session:
+            # Try to get email from service
+            service = get_gmail_service()
+            if service:
+                profile = service.users().getProfile(userId='me').execute()
+                user_email = profile.get('emailAddress')
+    except Exception as e:
+        print(f"Error getting user email during API logout: {e}")
+    
+    # Delete tokens from database
+    if user_email:
+        print(f"API logout for user: {user_email}")
+        delete_tokens_from_db(user_email)
+    
+    # Clear session
+    session.clear()
+    
+    return jsonify({
+        'success': True,
+        'message': 'Logged out successfully'
+    })
+
+
+# API auto-sync endpoint for customer dashboard integration
+@app.route('/api/auto-sync', methods=['POST', 'GET'])
+def api_auto_sync():
+    """
+    Background auto-sync endpoint for customer dashboard.
+    Automatically syncs emails for a user when they visit the dashboard.
+    
+    Query Parameters:
+        email (str): User's email address
+        
+    Returns:
+        JSON response with sync results:
+        {
+            "success": true,
+            "new_emails_count": 5,
+            "processed_count": 5,
+            "message": "Auto-sync completed successfully",
+            "last_sync_time": "2024-01-12T14:30:00Z"
+        }
+    
+    Example Usage from Customer Dashboard:
+        fetch('http://localhost:5000/api/auto-sync?email=user@example.com', {
+            method: 'POST'
+        })
+    """
+    try:
+        # Get user email from query parameter
+        user_email = request.args.get('email') or request.json.get('email') if request.is_json else None
+        
+        if not user_email:
+            return jsonify({
+                'success': False,
+                'error': 'Email parameter is required'
+            }), 400
+        
+        print(f"Auto-sync requested for user: {user_email}")
+        
+        # Load OAuth tokens from database
+        creds = load_tokens_from_db(user_email)
+        
+        if not creds:
+            return jsonify({
+                'success': False,
+                'error': 'No valid tokens found. User needs to authenticate first.',
+                'requires_auth': True
+            }), 401
+        
+        # Check if tokens are expired and refresh if needed
+        if creds.expired and creds.refresh_token:
+            try:
+                print(f"Refreshing expired token for {user_email}")
+                creds.refresh(Request())
+                # Save refreshed tokens back to database
+                save_tokens_to_db(user_email, creds)
+                print("Token refreshed successfully")
+            except Exception as e:
+                print(f"Error refreshing token: {e}")
+                return jsonify({
+                    'success': False,
+                    'error': 'Token refresh failed. User needs to re-authenticate.',
+                    'requires_auth': True
+                }), 401
+        
+        # Get last sync time for incremental sync
+        last_sync = get_last_sync_time(user_email)
+        
+        if last_sync:
+            print(f"Performing incremental sync since: {last_sync}")
+        else:
+            print("Performing full sync (last 24 hours)")
+        
+        # Build Gmail service with loaded credentials
+        service = build('gmail', 'v1', credentials=creds)
+        
+        # Fetch emails since last sync (or last 24 hours if first sync)
+        import time
+        if last_sync is None:
+            # Default: last 24 hours
+            twenty_four_hours_ago = int(time.time() * 1000) - (24 * 60 * 60 * 1000)
+            query_timestamp = twenty_four_hours_ago // 1000
+        else:
+            # Use last sync time (already in seconds)
+            query_timestamp = last_sync
+        
+        # Create query to fetch emails after timestamp
+        query = f"after:{query_timestamp}"
+        
+        # Fetch emails
+        results = service.users().messages().list(
+            userId='me', 
+            labelIds=['INBOX'], 
+            q=query
+        ).execute()
+        
+        messages = results.get('messages', [])
+        emails = []
+        
+        print(f"Found {len(messages)} new messages")
+        
+        # Fetch full email details
+        for msg in messages[:50]:  # Limit to 50 emails per sync to avoid timeout
+            try:
+                msg_id = msg['id']
+                email = service.users().messages().get(userId='me', id=msg_id).execute()
+                headers = email['payload']['headers']
+                subject = next((h['value'] for h in headers if h['name'] == 'Subject'), "(No Subject)")
+                snippet = email.get('snippet', "(No Snippet)")
+                sender = next((h['value'] for h in headers if h['name'] == 'From'), "Unknown")
+                
+                # Extract email body
+                from app import preprocess_email_content
+                body_content = preprocess_email_content(email['payload'])
+                
+                emails.append({
+                    "id": msg_id,
+                    "subject": subject,
+                    "snippet": snippet,
+                    "body": body_content,
+                    "sender": sender,
+                    "timestamp": email.get('internalDate', '')
+                })
+            except Exception as e:
+                print(f"Error processing email {msg_id}: {e}")
+                continue
+        
+        # Process emails with AI if available
+        processed_count = 0
+        if JOB_PROCESSOR_AVAILABLE and emails and (process_job_emails_parallel or process_job_email):
+            print(f"Processing {len(emails)} emails with AI")
+            
+            if process_job_emails_parallel and len(emails) > 1:
+                processed_count = process_job_emails_parallel(user_email, emails)
+            elif process_job_email:
+                for email_data in emails:
+                    if process_job_email(user_email, email_data):
+                        processed_count += 1
+            
+            print(f"Processed {processed_count} emails with AI")
+        
+        # Save raw emails to Supabase
+        if emails:
+            save_emails_to_supabase(user_email, emails)
+        
+        # Update last sync time
+        update_last_sync_time(user_email)
+        
+        # Get current time for response
+        from datetime import datetime
+        current_time = datetime.now().isoformat()
+        
+        return jsonify({
+            'success': True,
+            'new_emails_count': len(emails),
+            'processed_count': processed_count,
+            'message': f'Auto-sync completed successfully. Synced {len(emails)} new email(s).',
+            'last_sync_time': current_time
+        })
+        
+    except Exception as e:
+        print(f"Error in auto-sync: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+
 # Flask route to render the emails on the dashboard
 @app.route('/')
 def index():
@@ -724,6 +1389,18 @@ def index():
         except Exception as e:
             print(f"Error getting user email for Supabase save: {e}")
         
+        # Check if we should show success page with client redirect option
+        if CLIENT_REDIRECT_URL:
+            print(f"Showing success page with redirect to: {CLIENT_REDIRECT_URL}")
+            # Get processed count from recent processing
+            processed_count = locals().get('processed_count', 0)
+            return render_template('sync_success.html',
+                                 emails_count=len(emails),
+                                 processed_count=processed_count,
+                                 jobs_count=processed_count,
+                                 redirect_url=CLIENT_REDIRECT_URL)
+        
+        # Otherwise show the dashboard (backward compatibility)
         return render_template('index.html', emails=emails)
     
     # If no Gmail token but we have user_id, redirect to complete OAuth

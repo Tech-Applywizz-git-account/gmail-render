@@ -177,6 +177,23 @@
             <a href="/process-stored-emails">Process Stored Emails</a>
         </div>
 
+        <!-- Auto-Sync Button -->
+        <div style="text-align: center; margin: 20px 0;">
+            <button id="syncBtn" onclick="syncEmails()" style="
+                background-color: #4285f4;
+                color: white;
+                padding: 10px 20px;
+                border: none;
+                border-radius: 5px;
+                cursor: pointer;
+                font-size: 16px;
+                font-weight: bold;
+            ">
+                🔄 Sync New Emails
+            </button>
+            <span id="syncStatus" style="margin-left: 15px; font-weight: bold;"></span>
+        </div>
+
         {% if emails %}
         {% for email in emails %}
         <div class="email-card">
@@ -215,6 +232,52 @@
         </div>
         {% endif %}
     </div>
+
+    <script>
+        function syncEmails() {
+            const btn = document.getElementById('syncBtn');
+            const status = document.getElementById('syncStatus');
+
+            // Disable button and show loading
+            btn.disabled = true;
+            btn.textContent = '⏳ Syncing...';
+            status.textContent = '';
+            status.style.color = '#666';
+
+            // Call API
+            fetch('/api/sync-emails', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        status.textContent = `✓ Synced ${data.new_emails_count} new email(s)`;
+                        status.style.color = '#4caf50';
+
+                        // Reload page after 1.5 seconds to show new emails
+                        if (data.new_emails_count > 0) {
+                            setTimeout(() => {
+                                window.location.reload();
+                            }, 1500);
+                        }
+                    } else {
+                        status.textContent = `✗ Error: ${data.error}`;
+                        status.style.color = '#f44336';
+                    }
+                })
+                .catch(error => {
+                    status.textContent = `✗ Error: ${error.message}`;
+                    status.style.color = '#f44336';
+                })
+                .finally(() => {
+                    btn.disabled = false;
+                    btn.textContent = '🔄 Sync New Emails';
+                });
+        }
+    </script>
 </body>
 
 </html>
