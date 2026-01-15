@@ -31,6 +31,19 @@ SUPABASE_URL = os.environ.get('SUPABASE_URL')
 SUPABASE_KEY = os.environ.get('SUPABASE_KEY')
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_URL and SUPABASE_KEY else None
 
+# OpenAI Configuration (for Regular Clients - opted_job_links=FALSE)
+# Using Azure OpenAI Service
+AZURE_OPENAI_ENDPOINT = os.environ.get('AZURE_OPENAI_ENDPOINT')
+AZURE_OPENAI_API_KEY = os.environ.get('AZURE_OPENAI_API_KEY')
+AZURE_OPENAI_API_VERSION = os.environ.get('AZURE_OPENAI_API_VERSION', '2025-01-01-preview')
+AZURE_OPENAI_DEPLOYMENT = os.environ.get('AZURE_OPENAI_DEPLOYMENT', 'gpt-4o-mini')
+AZURE_USE_JSON_MODE = os.environ.get('AZURE_USE_JSON_MODE', 'true').lower() in {'1', 'true', 'yes'}
+
+# Initialize OpenAI client (lazy load)
+openai_client = None
+
+
+
 def validate_aws_credentials():
     """
     Validate that AWS credentials are properly configured for Bedrock API access.
@@ -114,6 +127,64 @@ def get_bedrock_client():
         import traceback
         traceback.print_exc()
         return None
+
+def get_openai_client():
+    """
+    Initialize and return Azure OpenAI client for ChatGPT AI processing.
+    
+    Creates an Azure OpenAI client configured to communicate with Azure OpenAI service.
+    This client is used for all ChatGPT operations for regular clients 
+    (opted_job_links=FALSE).
+        
+    Returns:
+        AzureOpenAI client: Configured Azure OpenAI client, or None if initialization fails
+        
+    Side Effects:
+        - May print error messages and stack traces
+        - Attempts to import openai library
+        - Stores client globally for reuse
+    """
+    global openai_client
+    
+    # Return cached client if available
+    if openai_client is not None:
+        return openai_client
+    
+    if not AZURE_OPENAI_ENDPOINT or not AZURE_OPENAI_API_KEY:
+        print("Warning: Azure OpenAI credentials not configured. ChatGPT processing will be disabled.")
+        print("Please set AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_API_KEY in your .env file.")
+        print(f"  AZURE_OPENAI_ENDPOINT: {'set' if AZURE_OPENAI_ENDPOINT else 'not set'}")
+        print(f"  AZURE_OPENAI_API_KEY: {'set' if AZURE_OPENAI_API_KEY else 'not set'}")
+        return None
+    
+    try:
+        from openai import AzureOpenAI
+        
+        # Initialize Azure OpenAI client
+        openai_client = AzureOpenAI(
+            api_key=AZURE_OPENAI_API_KEY,
+            api_version=AZURE_OPENAI_API_VERSION,
+            azure_endpoint=AZURE_OPENAI_ENDPOINT
+        )
+        
+        print(f"✓ Azure OpenAI client initialized successfully")
+        print(f"  Endpoint: {AZURE_OPENAI_ENDPOINT}")
+        print(f"  Deployment: {AZURE_OPENAI_DEPLOYMENT}")
+        print(f"  API Version: {AZURE_OPENAI_API_VERSION}")
+        return openai_client
+        
+    except ImportError as e:
+        print(f"openai package not installed. ChatGPT processing will be disabled.")
+        print(f"Please install it with: pip install openai. Error: {e}")
+        return None
+    except Exception as e:
+        print(f"Error initializing Azure OpenAI client: {e}")
+        print(f"AZURE_OPENAI_ENDPOINT: {AZURE_OPENAI_ENDPOINT}")
+        print(f"AZURE_OPENAI_DEPLOYMENT: {AZURE_OPENAI_DEPLOYMENT}")
+        import traceback
+        traceback.print_exc()
+        return None
+
 
 def extract_job_details_with_ai_client(bedrock_client, email_data):
     """
@@ -538,6 +609,274 @@ def categorize_email_with_ai(email_data):
     bedrock_client = get_bedrock_client()
     return categorize_email_with_ai_client(bedrock_client, email_data)
 
+def categorize_email_with_chatgpt(openai_client, email_data):
+    """
+    Classify email using ChatGPT (OpenAI) for regular clients.
+    
+    Uses the same categorization logic as Bedrock but with OpenAI's API.
+    This function is used for regular clients (opted_job_links=FALSE).
+    
+    Args:
+        openai_client: Initialized OpenAI client
+        email_data (dict): Dictionary containing subject, body, sender, and timestamp
+        
+    Returns:
+        str: One of "application_submitted", "next_steps", "reject", "other"
+    """
+    if not openai_client:
+        print("OpenAI client not available for categorization")
+        return "other"
+    
+    email_body = email_data.get("body", "")
+    
+    # Reuse the same prompt as Bedrock for consistency
+    prompt = f"""
+You are an expert job application email classifier. Your task is to read the ENTIRE email content carefully and determine the correct category based on the OVERALL TONE and PRIMARY MESSAGE.
+
+CRITICAL INSTRUCTION: READ THE ENTIRE EMAIL BEFORE CLASSIFYING. Do not make premature judgments based on isolated phrases.
+
+IMPORTANT: The email content may include HTML artifacts, OCR-extracted text from images, or formatting noise. Focus on the CORE MESSAGE and KEY PHRASES, ignoring technical noise.
+
+EMAIL BODY TO CLASSIFY:
+{email_body}
+
+CATEGORIES AND DEFINITIONS:
+1. application_submitted - Emails that CONFIRM receipt of a job application or describe the general hiring process WITHOUT requiring IMMEDIATE, SPECIFIC action
+   - Positive indicators: "thank you for applying", "we have received your application", "application successfully submitted", "application received", "received your application", "here's what happens next", "our hiring process", "application review process", "candidate selection process", "we will review your application", "our team will evaluate", "your application has been received"
+   
+   - CRITICAL DISTINCTION - Conditional follow-up language is NORMAL for application acknowledgments:
+      * "we will contact you if your background is a fit" = application_submitted (NOT rejection!)
+      * "we will reach out if we believe you're a good match" =application_submitted (NOT rejection!)
+      * "if your skills align, we will be in touch" = application_submitted (NOT rejection!)
+      * These phrases indicate the NORMAL screening process, NOT rejection
+   
+   - CRITICAL: Emails describing the general hiring timeline or process (e.g., "here's what happens next: 1. Application Review 2. Assessment Process 3. Candidate Selection") should be classified here, NOT as next_steps
+   
+   - Negative indicators (must NOT be in this category): specific requests with links to schedule interviews NOW, specific assessment links to complete NOW, EXPLICIT rejection language stating they are NOT moving forward
+
+2. next_steps - Emails requesting IMMEDIATE, SPECIFIC action with provided links/instructions (interviews, assessments to complete NOW)
+   - Positive indicators: "please schedule an interview using this link", "complete this coding assessment by [date]", "click here to schedule your interview", "complete the assessment at [specific URL]", "book your interview slot", "take the assessment now"
+   - CRITICAL: Only classify as next_steps if the email contains SPECIFIC, ACTIONABLE requests with links or deadlines - NOT general descriptions of future steps
+   - CRITICAL: Emails that say "you will be invited for an interview" or "we may invite you for assessment" are NOT next_steps (they are application_submitted)
+   - Negative indicators (must NOT be in this category): general application confirmations, general process descriptions without specific action links, rejections
+
+3. reject - Emails EXPLICITLY DECLINING or ENDING candidacy with CLEAR rejection language
+   - CRITICAL: Only classify as reject if the email EXPLICITLY states they are NOT moving forward with the candidacy
+   
+   - Positive indicators for rejection (these are ACTUAL rejections):
+      * "we've decided not to move forward with your candidacy"
+      * "unfortunately, you were not selected"
+      * "we will not be proceeding with your application"
+      * "the position has been filled by another candidate"
+      * "we have decided to pursue other candidates"
+      * "regret to inform you that you have not been selected"
+      * "your application was not successful"
+      * "we are moving forward with other applicants"
+   
+   - CRITICAL DISTINCTION - These are NOT rejections (they are application_submitted):
+      * "we will contact you IF you're a fit" = NOT a rejection (it's conditional follow-up)
+      * "if we believe you're a good match, we'll reach out" = NOT a rejection
+      * "we'll be in touch if your skills align" = NOT a rejection
+   
+   - Negative indicators (must NOT be classified as rejection): application confirmations with conditional follow-up language, requests for more information, interview scheduling
+
+4. other - ALL other emails including:
+   - Security/password emails: "verify your email address", "password reset request"
+   - General correspondence: "profile update reminder", "newsletter", "general notifications"
+   - Incomplete applications: "your application is incomplete", "please complete your submission"
+   - Follow-ups: "checking on your application status" (when sent by applicant)
+
+IMPORTANT CLASSIFICATION RULES:
+- READ THE ENTIRE EMAIL before making a decision
+- The PRIMARY MESSAGE and OVERALL TONE matter more than individual phrases
+- Choose ONLY ONE category that BEST fits the email's primary purpose
+- When uncertain between application_submitted and reject, ask yourself: "Does this email EXPLICITLY say they are NOT moving forward?" If NO, it's application_submitted
+- Body content is MORE IMPORTANT than subject line
+- Conditional follow-up language like "we'll contact you if..." is STANDARD in application acknowledgments, NOT rejection
+- NEVER classify emails requesting completion of incomplete applications as "next_steps"
+- NEVER classify follow-up emails (checking status) as any category except "other"
+- IGNORE HTML artifacts like "[Image Content Extracted via OCR]", extra whitespace, or formatting marks
+- FOCUS on the actual message content, especially ACTION VERBS and KEY PHRASES
+- If the email contains both confirmation AND next steps, classify as "next_steps" (the more important action)
+
+RESPONSE FORMAT:
+Respond ONLY with valid JSON in this exact format:
+{{"category": "application_submitted"}}
+
+VALID CATEGORIES (respond with EXACTLY one of these):
+- application_submitted
+- next_steps
+- reject  (NOT "rejected" - use exactly "reject")
+- other
+
+CLASSIFICATION RESULT:
+"""
+    
+    try:
+        print("Calling Azure OpenAI API for email categorization...")
+        
+        # Prepare messages
+        messages = [
+            {
+                "role": "system",
+                "content": "You are an expert email classifier. Always respond with valid JSON."
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ]
+        
+        # Build API call parameters
+        api_params = {
+            "model": AZURE_OPENAI_DEPLOYMENT,  # Azure uses deployment name
+            "messages": messages,
+            "temperature": 0.2,
+            "max_tokens": 200
+        }
+        
+        # Add JSON mode if enabled
+        if AZURE_USE_JSON_MODE:
+            api_params["response_format"] = {"type": "json_object"}
+        
+        response = openai_client.chat.completions.create(**api_params)
+        
+        result_text = response.choices[0].message.content
+        print(f"OpenAI API response received for categorization")
+        
+        # Parse JSON
+        data = json.loads(result_text)
+        category = data.get("category", "").lower().strip()
+        
+        # Normalize variations
+        if category == "rejected":
+            category = "reject"
+        
+        # Validate
+        valid = {"application_submitted", "next_steps", "reject", "other"}
+        final_category = category if category in valid else "other"
+        
+        print(f"ChatGPT categorized email as: {final_category}")
+        return final_category
+        
+    except Exception as e:
+        print(f"Error calling Azure OpenAI API for categorization: {e}")
+        import traceback
+        traceback.print_exc()
+        return "other"
+
+def extract_job_details_with_chatgpt(openai_client, email_data):
+    """
+    Extract job details using ChatGPT (OpenAI) for regular clients.
+    
+    Uses the same extraction logic as Bedrock but with OpenAI's API.
+    This function is used for regular clients (opted_job_links=FALSE).
+    
+    Args:
+        openai_client: Initialized OpenAI client
+        email_data (dict): Dictionary containing email subject, body, sender, and timestamp
+        
+    Returns:
+        dict: Extracted job details with keys:
+            - job_name (str)
+            - company_name (str)
+            - job_link (str)
+            - req_id (str)
+            - additional_details (str)
+    """
+    if not openai_client:
+        print("OpenAI client not available for job detail extraction")
+        return {
+            'job_name': '', 'company_name': '', 'job_link': '',
+            'req_id': '', 'additional_details': ''
+        }
+    
+    email_subject = email_data.get("subject", "")
+    email_body = email_data.get("body", "")
+    
+    # Reuse the same prompt as Bedrock for consistency
+    prompt = f"""
+You are an expert at extracting structured job information from emails.
+
+Extract the following information from this job-related email:
+- job_name: The job title or position name
+- company_name: The company or organization name
+- job_link: Any URL link to the job posting or application (if present)
+- req_id: Job requisition ID or reference number (if mentioned)
+- additional_details: Any other important details (salary, location, deadline, etc.)
+
+If any field is not found or not applicable, use an empty string "".
+
+EMAIL SUBJECT:
+{email_subject}
+
+EMAIL BODY:
+{email_body}
+
+RESPONSE FORMAT:
+Respond ONLY with valid JSON in this exact format:
+{{
+    "job_name": "Software Engineer",
+    "company_name": "TechCorp",
+    "job_link": "https://example.com/jobs/12345",
+    "req_id": "REQ-2024-001",
+    "additional_details": "Remote, $100k-$150k, Start date: Feb 2024"
+}}
+
+EXTRACTION RESULT:
+"""
+    
+    try:
+        print("Calling Azure OpenAI API for job detail extraction...")
+        
+        # Prepare messages
+        messages = [
+            {
+                "role": "system",
+                "content": "You are an expert at extracting structured job information from emails. Always respond with valid JSON."
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ]
+        
+        # Build API call parameters
+        api_params = {
+            "model": AZURE_OPENAI_DEPLOYMENT,  # Azure uses deployment name
+            "messages": messages,
+            "temperature": 0.2,
+            "max_tokens": 1000
+        }
+        
+        # Add JSON mode if enabled
+        if AZURE_USE_JSON_MODE:
+            api_params["response_format"] = {"type": "json_object"}
+        
+        response = openai_client.chat.completions.create(**api_params)
+        
+        result_text = response.choices[0].message.content
+        job_details = json.loads(result_text)
+        
+        # Validate expected keys
+        expected_keys = ['job_name', 'company_name', 'job_link', 'req_id', 'additional_details']
+        for key in expected_keys:
+            if key not in job_details:
+                job_details[key] = ""
+        
+        print(f"Successfully extracted job details with ChatGPT: {job_details}")
+        return job_details
+        
+    except Exception as e:
+        print(f"Error extracting job details with ChatGPT: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            'job_name': '', 'company_name': '', 'job_link': '',
+            'req_id': '', 'additional_details': ''
+        }
+
+
 def convert_category_to_status(category):
     """
     Convert email category to job status for database storage.
@@ -790,36 +1129,61 @@ def check_job_exists(user_email, company_name, job_name):
         print(f"Error checking job existence: {e}")
         return None
 
-def process_job_email_optimized(bedrock_client, user_email, email_data, job_lookup=None):
+def process_job_email_optimized(bedrock_client, user_email, email_data, job_lookup=None, client_info=None):
     """
-    Process a single job-related email through the complete pipeline with optimized client usage.
+    Process a single job-related email through the complete pipeline with multi-AI provider support.
     
     Orchestrates the complete job email processing workflow:
-    1. Extract structured job details using AI
-    2. Categorize the email using AI
-    3. Convert category to job status
-    4. Save/update job information in database
+    1. Determine which AI provider to use based on client type
+    2. Extract structured job details using appropriate AI
+    3. Categorize the email using appropriate AI
+    4. Convert category to job status
+    5. Save/update job information in database
     
-    This function is optimized to reuse an existing Bedrock client and
+    This function is optimized to reuse an existing AI client and
     optionally use a pre-fetched job lookup for duplicate checking.
     
     Args:
-        bedrock_client: Initialized Bedrock client for AI operations
+        bedrock_client: Initialized Bedrock client for AI operations (for job board clients)
         user_email (str): User's email address
         email_data (dict): Email data containing subject, body, sender, timestamp
         job_lookup (dict): Optional batch lookup for duplicate checking
+        client_info (dict): Optional client type info from get_client_type()
+                           If None, will be looked up automatically from app.py
         
     Returns:
         bool: True if processing successful, False otherwise
         
     Side Effects:
-        - Makes API calls to Bedrock and database queries
+        - Makes API calls to Bedrock or OpenAI and database queries
         - May print diagnostic information and error messages
     """
     try:
         print(f"Processing job email: {email_data.get('subject', '')}")
         print(f"Email sender: {email_data.get('sender', '')}")
         print(f"Email body length: {len(email_data.get('body', ''))} characters")
+        
+        # STEP 1: Determine which AI provider to use
+        if client_info is None:
+            # Lookup client type from database if not provided
+            try:
+                # Import get_client_type from app.py if not already imported
+                import sys
+                if 'app' in sys.modules:
+                    from app import get_client_type
+                    client_info = get_client_type(user_email)
+                else:
+                    # Fallback if app module not loaded - default to regular client
+                    print("Warning: app module not loaded, defaulting to regular client (ChatGPT)")
+                    client_info = {'is_job_board_client': False, 'client_id': None}
+            except Exception as e:
+                print(f"Error looking up client type: {e}")
+                # Default to regular client on error
+                client_info = {'is_job_board_client': False, 'client_id': None}
+        
+        is_job_board = client_info.get('is_job_board_client', False)
+        ai_provider = "Bedrock" if is_job_board else "ChatGPT"
+        print(f"🤖 Using AI provider: {ai_provider} for user {user_email}")
         
         # Initialize with defaults to ensure we always save something
         category = 'other'
@@ -840,15 +1204,21 @@ def process_job_email_optimized(bedrock_client, user_email, email_data, job_look
                 print(f"Using preclassified category: {preclassified_category}")
                 category = preclassified_category
             else:
-                # STEP 4: Categorization using AI
+                # STEP 2: Categorization using appropriate AI provider
                 print("Categorizing email with AI...")
-                category = categorize_email_with_ai_client(bedrock_client, email_data)
+                if is_job_board:
+                    # Use Bedrock for job board clients
+                    category = categorize_email_with_ai_client(bedrock_client, email_data)
+                else:
+                    # Use ChatGPT for regular clients
+                    openai_client = get_openai_client()
+                    category = categorize_email_with_chatgpt(openai_client, email_data)
                 print(f"Email category: {category}")
             
-            # STEP 5: Convert category → job status
+            # STEP 3: Convert category → job status
             status = convert_category_to_status(category)
             
-            # STEP 3: AI Parser → Extract job details for ALL categories
+            # STEP 4: AI Parser → Extract job details for ALL categories
             # This ensures we capture company/job info for all emails including:
             # - application_submitted: track which jobs you applied to
             # - next_steps: track interview/assessment requests
@@ -856,7 +1226,13 @@ def process_job_email_optimized(bedrock_client, user_email, email_data, job_look
             # - other: track job alerts and recommendations
             print("Extracting job details with AI...")
             try:
-                job_details = extract_job_details_with_ai_client(bedrock_client, email_data)
+                if is_job_board:
+                    # Use Bedrock for job board clients
+                    job_details = extract_job_details_with_ai_client(bedrock_client, email_data)
+                else:
+                    # Use ChatGPT for regular clients
+                    openai_client = get_openai_client()
+                    job_details = extract_job_details_with_chatgpt(openai_client, email_data)
                 if not job_details:
                     print("Failed to extract job details, using defaults")
                     job_details = {
@@ -887,7 +1263,9 @@ def process_job_email_optimized(bedrock_client, user_email, email_data, job_look
         
         job_details['status'] = status
         job_details['category'] = category
+        job_details['ai_provider'] = ai_provider  # Track which AI was used
         print(f"Job status: {status}")
+        print(f"AI provider used: {ai_provider}")
         
         # STEP 6: Check if job already exists
         # (This is handled in the save function)
@@ -993,25 +1371,50 @@ def process_job_emails_parallel(user_email, emails, max_workers=5):
     
     print(f"Processing {len(emails)} emails in parallel with {max_workers} workers...")
     
-    # Initialize Bedrock client once for reuse
-    bedrock_client = get_bedrock_client()
-    if not bedrock_client:
-        print("Bedrock client not available, falling back to sequential processing")
-        processed_count = 0
-        for email_data in emails:
-            if process_job_email_optimized(bedrock_client, user_email, email_data):
-                processed_count += 1
-        return processed_count
+    # STEP 1: Lookup client type ONCE for all emails (performance optimization)
+    try:
+        import sys
+        if 'app' in sys.modules:
+            from app import get_client_type
+            client_info = get_client_type(user_email)
+        else:
+            # Fallback if app module not loaded
+            print("Warning: app module not loaded, defaulting to regular client (ChatGPT)")
+            client_info = {'is_job_board_client': False, 'client_id': None}
+    except Exception as e:
+        print(f"Error looking up client type: {e}")
+        client_info = {'is_job_board_client': False, 'client_id': None}
     
-    # Fetch all user jobs once for batch duplicate checking
+    is_job_board = client_info.get('is_job_board_client', False)
+    ai_provider = "Bedrock" if is_job_board else "ChatGPT"
+    print(f"🤖 Client type: {'Job Board' if is_job_board else 'Regular'} → Using {ai_provider}")
+    
+    # STEP 2: Initialize appropriate AI client once for reuse
+    bedrock_client = get_bedrock_client() if is_job_board else None
+    openai_client = get_openai_client() if not is_job_board else None
+    
+    # Check if AI client is available
+    if is_job_board and not bedrock_client:
+        print("Bedrock client not available, emails will fall back to 'other' category")
+    elif not is_job_board and not openai_client:
+        print("OpenAI client not available, emails will fall back to 'other' category")
+    
+    # STEP 3: Fetch all user jobs once for batch duplicate checking
     job_lookup = get_user_jobs_batch(user_email)
     
-    # Process emails in parallel
+    # STEP 4: Process emails in parallel
     processed_count = 0
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # Submit all tasks
+        # Submit all tasks with client_info parameter
         future_to_email = {
-            executor.submit(process_job_email_optimized, bedrock_client, user_email, email_data, job_lookup): email_data 
+            executor.submit(
+                process_job_email_optimized, 
+                bedrock_client,  # Will be used if is_job_board=True
+                user_email, 
+                email_data, 
+                job_lookup, 
+                client_info  # Pass client_info to avoid repeated lookups
+            ): email_data 
             for email_data in emails
         }
         
