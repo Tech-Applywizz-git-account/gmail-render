@@ -157,7 +157,8 @@ def get_credentials_dict():
     redirect_uris = [
         "http://localhost:5000/callback",
         "http://localhost/callback",
-        "https://gmail-render.vercel.app/callback"
+        "https://gmail-render.vercel.app/callback",
+        "https://job-tracking-ai.apply-wizz.me/callback"
     ]
     
     credentials = {
