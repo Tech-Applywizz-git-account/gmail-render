@@ -1032,6 +1032,13 @@ def terms_of_service():
     """Serve the terms of service page"""
     return render_template('terms-of-service.html')
 
+# Google Domain Verification Route
+@app.route('/googlea78f5a7194ef16c2.html')
+def google_verification():
+    """Serve Google domain verification file"""
+    return "google-site-verification: googlea78f5a7194ef16c2.html"
+
+
 # Flask route to display fetched emails without LLM processing
 @app.route('/fetched-emails')
 def fetched_emails():
