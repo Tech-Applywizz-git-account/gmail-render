@@ -1038,6 +1038,21 @@ def google_verification():
     """Serve Google domain verification file"""
     return "google-site-verification: googlea78f5a7194ef16c2.html"
 
+# Health check endpoint
+@app.route('/health')
+@app.route('/status')
+def health_check():
+    """Health check endpoint to confirm app is running"""
+    return {"status": "healthy", "service": "job-tracker-app"}, 200
+
+# Public homepage route that doesn't require authentication
+@app.route('/home')
+def public_home():
+    """Public landing page for unauthenticated users"""
+    # Even if not logged in, serve the basic homepage to satisfy Google verification
+    return render_template('index.html', emails=[])
+
+
 
 # Flask route to display fetched emails without LLM processing
 @app.route('/fetched-emails')
@@ -1417,10 +1432,11 @@ def index():
         print("User ID found but no Gmail token, redirecting to login")
         return redirect(url_for('login_page'))
     
-    # If neither, redirect to login
+    # If neither, serve a basic public page for Google verification
     else:
-        print("No session found, redirecting to login page")
-        return redirect(url_for('login_page'))
+        print("No session found, serving public homepage for verification")
+        # Serve a basic version of the homepage to satisfy Google's verification
+        return render_template('index.html', emails=[])
 
 # Test endpoint for Bedrock functionality
 @app.route('/test-bedrock')
