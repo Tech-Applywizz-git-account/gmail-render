@@ -158,8 +158,8 @@ def get_credentials_dict():
         "http://localhost:5000/callback",
         "http://localhost/callback",
         "https://gmail-render.vercel.app/callback",
-        "https://job-tracking-ai.apply-wizz.me/callback",
-        "https://www.job-tracking-ai.apply-wizz.me/callback"
+        "https://www.job-tracking-ai.apply-wizz.me/callback",
+        "https://job-tracking-ai.apply-wizz.me/callback"  # Support both www and non-www
     ]
     
     credentials = {
