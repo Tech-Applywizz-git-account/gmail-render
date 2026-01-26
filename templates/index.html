@@ -152,6 +152,24 @@
         .nav-links a:hover {
             text-decoration: underline;
         }
+
+        footer {
+            background-color: #2c3e50;
+            color: white;
+            padding: 20px;
+            text-align: center;
+            margin-top: 50px;
+        }
+
+        footer a {
+            color: #4285f4;
+            text-decoration: none;
+            margin: 0 15px;
+        }
+
+        footer a:hover {
+            text-decoration: underline;
+        }
     </style>
 </head>
 
@@ -210,26 +228,26 @@
         <p>No emails found.</p>
         {% endif %}
         {% else %}
-        <div class="login-container">
-            <div class="login-form">
-                <h2>Access Your Gmail</h2>
-                <p>Securely connect to your Gmail account to view your latest emails in this dashboard.</p>
 
-                <div class="info-box">
-                    <h3>How It Works:</h3>
-                    <ul>
-                        <li>You'll be redirected to Google's secure login page</li>
-                        <li>Enter your Gmail credentials on Google's official site</li>
-                        <li>Grant permission to read your emails</li>
-                        <li>Return here to view your latest 100 emails</li>
-                    </ul>
-                </div>
+        <div class="login-form">
+            <h2>Access Your Gmail</h2>
+            <p>Securely connect to your Gmail account to view your latest emails in this dashboard.</p>
 
-                <p>We never see or store your password. This is the most secure method to access your emails.</p>
-
-                <a href="/login" class="login-button">Login with Google</a>
+            <div class="info-box">
+                <h3>How It Works:</h3>
+                <ul>
+                    <li>You'll be redirected to Google's secure login page</li>
+                    <li>Enter your Gmail credentials on Google's official site</li>
+                    <li>Grant permission to read your emails</li>
+                    <li>Return here to view your latest 100 emails</li>
+                </ul>
             </div>
+
+            <p>We never see or store your password. This is the most secure method to access your emails.</p>
+
+            <a href="/login" class="login-button">Login with Google</a>
         </div>
+
         {% endif %}
     </div>
 
@@ -278,6 +296,14 @@
                 });
         }
     </script>
+
+    <footer>
+        <p>&copy; 2026 Job Tracking. All rights reserved.</p>
+        <p>
+            <a href="/privacy-policy">Privacy Policy</a> |
+            <a href="/terms-of-service">Terms of Service</a>
+        </p>
+    </footer>
 </body>
 
 </html>
