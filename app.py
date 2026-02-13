@@ -963,6 +963,52 @@ def logout():
         print("No client URLs configured, redirecting to login page")
         return redirect(url_for('login_page'))
 
+# Map Emails route - Trigger Karmafy mapping for current user
+@app.route('/map-emails')
+def map_emails():
+    """
+    Map fetched emails to Karmafy tasks for the logged-in user.
+    Updates is_email_received = true for matched tasks.
+    """
+    # Ensure user is logged in
+    if 'user_email' not in session:
+        flash('Please log in first to map your emails', 'error')
+        return redirect(url_for('login_page'))
+    
+    user_email = session['user_email']
+    
+    try:
+        # Import mapper function
+        from karmafy_mapper import map_user_emails
+        
+        # Run mapping for this user only
+        result = map_user_emails(user_email)
+        
+        if result['success']:
+            if result['matches_found'] > 0:
+                flash(f"✅ Mapping complete! {result['matches_found']} job confirmations matched with your Karmafy tasks ({result['full_matches']} full matches, {result['company_matches']} company matches, {result['job_title_matches']} job title matches).", 'success')
+            else:
+                # No matches found - provide helpful message
+                if result.get('error'):
+                    flash(f"⚠️ {result.get('error')}", 'info')
+                else:
+                    flash(f"ℹ️ No matches found. Processed {result['tasks_processed']} tasks but couldn't match them with confirmation emails. This is normal if you haven't received confirmations yet.", 'info')
+        else:
+            flash(f"❌ Mapping failed: {result.get('error', 'Unknown error')}", 'error')
+            
+    except Exception as e:
+        print(f"Error in map_emails route: {e}")
+        import traceback
+        traceback.print_exc()
+        flash(f"❌ Error during mapping: {str(e)}", 'error')
+    
+    # Redirect back to client dashboard or index
+    redirect_url = CLIENT_REDIRECT_URL
+    if redirect_url:
+        return redirect(redirect_url)
+    else:
+        return redirect(url_for('index'))
+
 # Admin route to view user tracking data
 @app.route('/admin')
 def admin():

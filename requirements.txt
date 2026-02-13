@@ -9,6 +9,8 @@ boto3==1.35.0
 botocore==1.35.0
 beautifulsoup4==4.12.2
 openai==1.12.0
+psycopg2-binary==2.9.9
+
 # Optional OCR dependencies (uncomment if you want OCR functionality)
 Pillow==10.0.1
 pytesseract==0.3.10

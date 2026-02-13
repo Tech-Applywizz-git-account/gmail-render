@@ -211,12 +211,19 @@
 
         <!-- Buttons -->
         <div class="button-group">
+            <!-- Map Emails to Karmafy Button (Primary Action) -->
+            <a href="/map-emails" class="btn btn-primary">
+                🔄 Map Fetched Emails to Karmafy
+            </a>
+
+            <!-- Dashboard Button (Secondary) -->
             {% if redirect_url %}
-            <a href="{{ redirect_url }}" class="btn btn-primary">
+            <a href="{{ redirect_url }}" class="btn btn-secondary">
                 🏠 Go Back to Customer Dashboard
             </a>
             {% endif %}
 
+            <!-- Logout Button (Secondary) -->
             <a href="/logout" class="btn btn-secondary">
                 🚪 Logout
             </a>

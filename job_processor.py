@@ -292,7 +292,7 @@ EXTRACTION RESULT:
                 }
             ],
             inferenceConfig={
-                "maxTokens": 1000,
+                "maxTokens": 2000,  # Increased from 1000 to handle longer job titles
                 "temperature": 0.5,
                 "topP": 0.9
             }
@@ -474,6 +474,7 @@ CATEGORIES AND DEFINITIONS:
    - General correspondence: "profile update reminder", "newsletter", "general notifications"
    - Incomplete applications: "your application is incomplete", "please complete your submission"
    - Follow-ups: "checking on your application status" (when sent by applicant)
+   - CRITICAL: Talent community/recruitment marketing emails: "join our talent community", "complete your profile", "update your profile for future opportunities", "view current openings" - these are NOT next_steps (no active application), classify as other
 
 IMPORTANT CLASSIFICATION RULES:
 - READ THE ENTIRE EMAIL before making a decision
@@ -516,6 +517,10 @@ Category: reject (explicit decision NOT to proceed)
 Example 3 - Application Acknowledgment with process description:
 "Thank you for applying to DRW. Your application has been received and our team will begin reviewing it shortly. If your background is a fit for this role, we will contact you soon."
 Category: application_submitted (acknowledgment + conditional follow-up = normal process)
+
+Example 4 - Talent Community Email (NOT next_steps):
+"We're excited that you joined the Ascensus Talent Community. Complete your profile to help us highlight the right job opportunities for you. Update Your Profile. Visit our career site to view current opportunities."
+Category: other (recruitment marketing, NOT an active application next step)
 
 CLASSIFICATION RESULT:
 """
@@ -685,6 +690,7 @@ CATEGORIES AND DEFINITIONS:
    - General correspondence: "profile update reminder", "newsletter", "general notifications"
    - Incomplete applications: "your application is incomplete", "please complete your submission"
    - Follow-ups: "checking on your application status" (when sent by applicant)
+   - CRITICAL: Talent community/recruitment marketing emails: "join our talent community", "complete your profile", "update your profile for future opportunities", "view current openings" - these are NOT next_steps (no active application), classify as other
 
 IMPORTANT CLASSIFICATION RULES:
 - READ THE ENTIRE EMAIL before making a decision
@@ -846,7 +852,7 @@ EXTRACTION RESULT:
             "model": AZURE_OPENAI_DEPLOYMENT,  # Azure uses deployment name
             "messages": messages,
             "temperature": 0.2,
-            "max_tokens": 1000
+            "max_tokens": 2000  # Increased from 1000 to handle longer job titles
         }
         
         # Add JSON mode if enabled
@@ -1214,6 +1220,11 @@ def process_job_email_optimized(bedrock_client, user_email, email_data, job_look
                     openai_client = get_openai_client()
                     category = categorize_email_with_chatgpt(openai_client, email_data)
                 print(f"Email category: {category}")
+                
+            # Log email processing details for debugging
+            print(f"📧 Processing email from: {email_data.get('sender', 'Unknown')}")
+            print(f"   Subject: {email_data.get('subject', 'No Subject')[:100]}...")
+            print(f"   Body length: {len(email_data.get('body', ''))} characters")
             
             # STEP 3: Convert category → job status
             status = convert_category_to_status(category)
@@ -1233,6 +1244,14 @@ def process_job_email_optimized(bedrock_client, user_email, email_data, job_look
                     # Use ChatGPT for regular clients
                     openai_client = get_openai_client()
                     job_details = extract_job_details_with_chatgpt(openai_client, email_data)
+                    
+                # Log extraction results
+                print(f"📊 Extraction results:")
+                print(f"   Job Name: '{job_details.get('job_name', '')}' ({len(job_details.get('job_name', ''))} chars)")
+                print(f"   Company: '{job_details.get('company_name', '')}' ({len(job_details.get('company_name', ''))} chars)")
+                print(f"   Job Link: '{job_details.get('job_link', '')}'")
+                print(f"   Req ID: '{job_details.get('req_id', '')}'")
+                
                 if not job_details:
                     print("Failed to extract job details, using defaults")
                     job_details = {
@@ -1260,6 +1279,11 @@ def process_job_email_optimized(bedrock_client, user_email, email_data, job_look
             # job_details already initialized with empty values
         
         print(f"Extracted job details: {job_details}")
+        
+        # Debug: Check for missing job names
+        if not job_details.get('job_name', '').strip():
+            print(f"⚠️  WARNING: No job name extracted from email: {email_data.get('subject', '')[:50]}...")
+            print(f"   Email body preview: {email_data.get('body', '')[:200]}...")
         
         job_details['status'] = status
         job_details['category'] = category
